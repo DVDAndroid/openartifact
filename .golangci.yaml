@@ -1,0 +1,180 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+linters:
+  default: all
+  disable:
+    # Style preferences we don't enforce
+    - exhaustruct # requiring all struct fields set is too noisy
+    - exhaustruct_v5 # successor of exhaustruct, same rationale
+    - funlen # function length — we prefer cyclomatic complexity instead
+    - gomodguard
+    - gocognit # cognitive complexity — cyclop covers this
+    - goconst # repeated strings — too many false positives in SQL
+    - ireturn # returning interfaces — we intentionally return interfaces
+    - mnd # magic numbers — too noisy in SQL/HTTP status codes
+    - musttag # struct tags — too noisy for internal types
+    - paralleltest # parallel tests — not all tests are safe to parallelize
+    - prealloc # slice preallocation — micro-optimization, noisy
+    - revive # opinionated style — conflicts with our patterns
+    - wrapcheck # wrapping errors — we use fmt.Errorf %w selectively
+    - wsl # whitespace linter — too opinionated
+    - wsl_v5 # successor of wsl, same rationale
+    - nlreturn # newline before return — too opinionated
+    - testpackage # _test package naming — we use same-package tests
+    - lll # line length — handled by editor, not enforced
+    - varnamelen # variable name length — too noisy for short-lived vars
+    - depguard # dependency guard — not configured
+    - forbidigo # forbidden identifiers — not configured
+    - inamedparam # named params — not enforced
+    - gosmopolitan # i18n — not applicable
+    - exhaustive # exhaustive switch — too noisy for string enums
+    - copyloopvar # fixed in Go 1.22+
+    - intrange # fixed in Go 1.22+
+    - iface # interface checks — too strict
+    - noinlineerr # inline errors — conflicts with our patterns
+    - promlinter # prometheus naming — we follow our own conventions
+    - protogetter # proto getters — no protobuf
+    - recvcheck # receiver naming — too strict
+    - rowserrcheck # sql rows — covered by sqlclosecheck
+    - sqlclosecheck # sql close — handled by defer patterns
+    - staticcheck # superseded by individual linters
+    - usetesting # testing.T usage — too strict
+    - maintidx # maintainability index — too noisy
+    - contextcheck # context propagation — too many false positives
+    - funcorder # function ordering — style preference
+
+  settings:
+    cyclop:
+      max-complexity: 20
+
+    dupl:
+      threshold: 200
+
+    nestif:
+      min-complexity: 10
+
+    varnamelen:
+      check-return: true
+      ignore-names:
+        - err
+        - ok
+        - wg
+        - id
+        - db
+        - tx
+        - r
+        - w
+        - h
+        - p
+        - q
+        - v
+        - k
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+      ignore-decls:
+        - n int
+        - i int
+        - w http.ResponseWriter
+        - r *http.Request
+
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+
+    gocritic:
+      disabled-checks:
+        - appendAssign
+
+    lll:
+      line-length: 140
+
+    gocyclo:
+      min-complexity: 20
+
+    godot:
+      scope: declarations
+
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+
+    interfacebloat:
+      max: 300
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # Test files get more relaxed rules
+      - path: "_test\\.go"
+        linters:
+          - dupl
+          - varnamelen
+          - lll
+          - godot
+          - errcheck
+          - err113
+          - gosec
+          - nilnil
+          - unparam
+          - errchkjson
+          - forcetypeassert
+      # Integration tests directory
+      - path: "tests/"
+        linters:
+          - gosec
+          - nilnil
+          - unparam
+          - errchkjson
+          - forcetypeassert
+          - err113
+      # Migration files are SQL strings, not Go
+      - path: "migrations/"
+        linters:
+          - lll
+      # Generated files
+      - path: "web/src/api/types.d.ts"
+        linters:
+          - lll
+      # Main entrypoints can be longer and more complex
+      - path: "cmd/"
+        linters:
+          - funlen
+          - cyclop
+          - gocyclo
+      # Generated sqlc code — do not lint
+      - path: "internal/database/dbsqlc/"
+        linters:
+          - all
+      # External API protocol contracts — field names must match external specs
+      - path: "internal/api/upload_npm\\.go"
+        linters:
+          - tagliatelle
+      - path: "internal/vuln/scanner\\.go"
+        linters:
+          - tagliatelle
+      - path: "internal/format/gomod/http\\.go"
+        linters:
+          - tagliatelle
+      - path: "internal/database/interfaces\\.go"
+        linters:
+          - tagliatelle
+          - interfacebloat
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10

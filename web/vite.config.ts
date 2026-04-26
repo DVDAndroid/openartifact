@@ -1,0 +1,32 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
+import { resolve } from 'path'
+
+export default defineConfig({
+  plugins: [vue(), tailwindcss()],
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+      },
+    },
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+    },
+  },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:8080',
+    },
+  },
+})

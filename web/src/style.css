@@ -1,0 +1,174 @@
+/*
+ * SPDX-FileCopyrightText: The OpenArtifact Authors
+ *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+:root {
+  --color-bg: 249 250 251;
+  --color-surface: 255 255 255;
+  --color-surface-hover: 243 244 246;
+  --color-foreground: 17 24 39;
+  --color-muted: 107 114 128;
+  --color-border: 229 231 235;
+
+  --color-primary: 79 70 229;
+  --color-primary-contrast: 255 255 255;
+  --color-primary-soft: 224 231 255;
+
+  --color-success: 22 101 52;
+  --color-success-soft: 220 252 231;
+  --color-warning: 133 77 14;
+  --color-warning-soft: 254 249 195;
+  --color-danger: 153 27 27;
+  --color-danger-soft: 254 226 226;
+}
+
+.dark {
+  --color-bg: 9 11 19;
+  --color-surface: 17 20 32;
+  --color-surface-hover: 26 31 48;
+  --color-foreground: 235 238 245;
+  --color-muted: 148 163 184;
+  --color-border: 36 42 58;
+
+  --color-primary: 129 140 248;
+  --color-primary-contrast: 17 24 39;
+  --color-primary-soft: 55 48 163;
+
+  --color-success: 134 239 172;
+  --color-success-soft: 6 78 59;
+  --color-warning: 250 204 21;
+  --color-warning-soft: 113 63 18;
+  --color-danger: 248 113 113;
+  --color-danger-soft: 127 29 29;
+}
+
+html,
+body {
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-foreground));
+}
+
+*:focus-visible {
+  outline: 2px solid rgb(var(--color-primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Sidebar frosted glass */
+.sidebar-glass {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: rgb(var(--color-surface) / 0.72);
+  background-image: radial-gradient(
+    ellipse at 20% 0%,
+    rgb(var(--color-primary) / 0.06) 0%,
+    transparent 60%
+  );
+}
+
+/* Nice scrollbar */
+.nice-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-border));
+  border-radius: 9999px;
+}
+
+/* Tab underline transition */
+.tab-underline {
+  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Skeleton shimmer */
+.skel {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--color-surface-hover)) 25%,
+    rgb(var(--color-border) / 0.3) 50%,
+    rgb(var(--color-surface-hover)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Bar fill animation */
+.bar-fill {
+  animation: growBar 0.8s ease-out forwards;
+}
+
+/* Toast progress bar */
+.toast-progress {
+  animation: progress var(--duration, 4s) linear forwards;
+}
+
+/* Keyframes */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes growBar {
+  from {
+    width: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+@keyframes slideRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slideRight {
+  animation: slideRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}

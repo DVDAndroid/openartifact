@@ -1,0 +1,477 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package database
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+
+	"github.com/openartifact/openartifact/internal/database/models"
+)
+
+// ErrDuplicate is returned by Create*Package when an insert hits the unique
+// constraint (ON CONFLICT), so callers can distinguish an idempotent duplicate
+// upload (map to HTTP 409) from a real failure. This closes the check-then-insert
+// TOCTOU: concurrent identical uploads race the existence check, but exactly one
+// INSERT wins and the losers observe ErrDuplicate.
+var ErrDuplicate = errors.New("artifact already exists")
+
+// Database defines the interface for database operations.
+type Database interface {
+	// GetDB returns the underlying sql.DB connection
+	GetDB() *sql.DB
+
+	// Close closes the database connection
+	Close() error
+
+	// Ping checks if the database is accessible
+	Ping(ctx context.Context) error
+
+	// BeginTx starts a new transaction
+	BeginTx(ctx context.Context) (Transaction, error)
+
+	// Migrate runs database migrations
+	Migrate(ctx context.Context) error
+
+	GetRepositoryByName(ctx context.Context, name string) (*models.Repository, error)
+	GetRepositoryByID(ctx context.Context, id string) (*models.Repository, error)
+	CreateRepository(ctx context.Context, repo *models.Repository) error
+	ListRepositories(ctx context.Context, page, limit int, formatFilter string) ([]*models.Repository, error)
+	CountRepositories(ctx context.Context, formatFilter string) (int, error)
+	UpdateRepository(ctx context.Context, repo *models.Repository) error
+	DeleteRepository(ctx context.Context, id string) error
+	ListComponentsByRepo(ctx context.Context, repoID, formatFilter string, page, limit int) ([]*models.Component, int, error)
+
+	GetRPMRepo(ctx context.Context, repositoryID string) (*models.RPMRepo, error)
+	CreateRPMRepo(ctx context.Context, repo *models.RPMRepo) error
+	MarkRepoStale(ctx context.Context, repositoryID string) error
+
+	CreateComponent(ctx context.Context, component *models.Component) error
+	CreateDebPackage(ctx context.Context, pkg *models.Component, distID, compID string) error
+	CreateRpmPackage(ctx context.Context, pkg *models.Component) error
+	UpsertBlob(ctx context.Context, sha256, blobKey string, sizeBytes int64) (string, error)
+	GetComponentByID(ctx context.Context, id string) (*models.Component, error)
+	GetComponentByFilename(ctx context.Context, repoID string, filename string) (*models.Component, error)
+	GetComponentsByRepo(ctx context.Context, repoID string) ([]models.Component, error)
+	DeleteComponent(ctx context.Context, componentID string) error
+
+	GetRepoMetadataByPath(ctx context.Context, repositoryID string, path string) (*models.RepoMetadata, error)
+	GetRepoMetadataByRepo(ctx context.Context, repositoryID string) ([]models.RepoMetadata, error)
+	UpsertRepoMetadata(ctx context.Context, meta *models.RepoMetadata) error
+
+	CreateDebianDistribution(ctx context.Context, dist *models.DebianDistribution) error
+	GetDebianDistribution(ctx context.Context, repoID string, name string) (*models.DebianDistribution, error)
+	GetDebianDistributionsByRepo(ctx context.Context, repoID string) ([]models.DebianDistribution, error)
+	CreateDebianComponent(ctx context.Context, comp *models.DebianComponent) error
+	GetDebianComponentsByDist(ctx context.Context, distID string) ([]models.DebianComponent, error)
+	CreateDebianArchitecture(ctx context.Context, arch *models.DebianArchitecture) error
+	GetDebianArchitecturesByDist(ctx context.Context, distID string) ([]models.DebianArchitecture, error)
+	GetDebianPackageByFilename(ctx context.Context, repoID string, filename string) (*models.Component, error)
+	GetDebianPackagesByDistComp(ctx context.Context, repoID string, dist string, comp string, arch string) ([]models.Component, error)
+	GetDebPackageByID(ctx context.Context, id string) (*models.DebPackage, error)
+	ListDebPackagesByRepo(ctx context.Context, repoID string) ([]*models.DebPackage, error)
+	GetRpmPackageByID(ctx context.Context, id string) (*models.RpmPackage, error)
+	ListRpmPackagesByRepo(ctx context.Context, repoID string) ([]*models.RpmPackage, error)
+
+	CreateMavenArtifact(ctx context.Context, a *models.MavenArtifact) error
+	GetMavenArtifactByPath(ctx context.Context, repoID, path string) (*models.MavenArtifact, error)
+	GetMavenArtifactsByGAV(ctx context.Context, repoID, groupID, artifactID, version string) ([]*models.MavenArtifact, error)
+	GetMavenArtifactsByGA(ctx context.Context, repoID, groupID, artifactID string) ([]*models.MavenArtifact, error)
+	GetLatestSnapshot(ctx context.Context, repoID, groupID, artifactID, version string) (*models.MavenArtifact, error)
+	DeleteMavenArtifact(ctx context.Context, id string) error
+
+	// ListMavenArtifactsByRepo is a bulk-list-by-repo method used only by
+	// backup export (no GA/path filter required).
+	ListMavenArtifactsByRepo(ctx context.Context, repoID string) ([]*models.MavenArtifact, error)
+
+	CreateNPMPackage(ctx context.Context, p *models.NPMPackage) (*models.NPMPackage, error)
+	GetNPMPackageByName(ctx context.Context, repoID, fullName string) (*models.NPMPackage, error)
+	DeleteNPMPackage(ctx context.Context, packageID string) error
+	MarkPackumentStale(ctx context.Context, packageID string) error
+	UpdateNPMPackageLatestVersion(ctx context.Context, packageID, latestVersion string) error
+	CreateNPMVersion(ctx context.Context, v *models.NPMVersion) (*models.NPMVersion, error)
+	GetNPMVersion(ctx context.Context, packageID, version string) (*models.NPMVersion, error)
+	GetNPMVersionsByPackage(ctx context.Context, packageID string) ([]*models.NPMVersion, error)
+	DeleteNPMVersion(ctx context.Context, packageID, version string) error
+	UpsertNPMDistTag(ctx context.Context, t *models.NPMDistTag) (*models.NPMDistTag, error)
+	GetNPMDistTags(ctx context.Context, packageID string) (map[string]string, error)
+	DeleteNPMDistTag(ctx context.Context, packageID, tag string) error
+
+	// ListAllNPMPackages/ListNPMVersionsByRepo are bulk-list-by-repo methods
+	// used only by backup export (no name/GA/platform filter required).
+	ListAllNPMPackages(ctx context.Context, repoID string) ([]*models.NPMPackage, error)
+	ListNPMVersionsByRepo(ctx context.Context, repoID string) ([]*models.NPMVersion, error)
+
+	// Docker Registry methods
+	CreateDockerBlob(ctx context.Context, blob *models.DockerBlob) error
+	GetDockerBlob(ctx context.Context, repoID, digest string) (*models.DockerBlob, error)
+	DeleteDockerBlob(ctx context.Context, repoID, digest string) error
+	ListDockerBlobs(ctx context.Context, repoID string) ([]*models.DockerBlob, error)
+
+	CreateDockerUpload(ctx context.Context, upload *models.DockerUpload) error
+	GetDockerUpload(ctx context.Context, repositoryID, uploadUUID string) (*models.DockerUpload, error)
+	UpdateDockerUploadOffset(ctx context.Context, repositoryID, uploadUUID string, offset int64) error
+	DeleteDockerUpload(ctx context.Context, repositoryID, uploadUUID string) error
+
+	CreateDockerManifest(ctx context.Context, m *models.DockerManifest) error
+	GetDockerManifest(ctx context.Context, repoID, digest string) (*models.DockerManifest, error)
+	DeleteDockerManifest(ctx context.Context, repoID, digest string) error
+
+	// ListDockerManifestsByRepo is a bulk-list-by-repo method used only by
+	// backup export (no digest/subject filter required).
+	ListDockerManifestsByRepo(ctx context.Context, repoID string) ([]*models.DockerManifest, error)
+
+	UpsertDockerTag(ctx context.Context, tag *models.DockerTag) error
+	GetDockerTag(ctx context.Context, repoID, name string) (*models.DockerTag, error)
+	DeleteDockerTag(ctx context.Context, repoID, name string) error
+	ListDockerTags(ctx context.Context, repoID string, last string, n int) ([]*models.DockerTag, error)
+
+	// EnsureBlob ensures the global blobs table has a row for sha256
+	// (creating it, or updating its media type, if needed) and returns its
+	// blobs.id. Used by manifest handlers that need a blob_id FK without an
+	// accompanying per-format registry row (unlike UpsertBlob's callers).
+	EnsureBlob(ctx context.Context, sha256, mediaType string, size int64) (string, error)
+
+	// ListDockerManifestsBySubject returns manifests in repoID whose OCI
+	// `subject` field points at subjectDigest, for the Referrers API.
+	ListDockerManifestsBySubject(ctx context.Context, repoID, subjectDigest string) ([]*models.DockerManifest, error)
+
+	// Proxy/Group repository methods
+	AddGroupMember(ctx context.Context, groupRepoID, memberRepoID string, priority int) error
+	RemoveGroupMember(ctx context.Context, groupRepoID, memberRepoID string) error
+	ListGroupMembers(ctx context.Context, groupRepoID string) ([]*models.RepositoryGroupMember, error)
+	GetProxyCacheEntry(ctx context.Context, repoID, cacheKey string) (*models.ProxyCacheEntry, error)
+	UpsertProxyCacheEntry(ctx context.Context, entry *models.ProxyCacheEntry) error
+	DeleteProxyCacheEntry(ctx context.Context, repoID, cacheKey string) error
+	DeleteExpiredProxyCacheEntries(ctx context.Context) (int64, error)
+
+	// Helm methods
+	CreateHelmChart(ctx context.Context, chart *models.HelmChart) error
+	GetHelmChart(ctx context.Context, repoID, name, version string) (*models.HelmChart, error)
+	DeleteHelmChart(ctx context.Context, repoID, name, version string) error
+	ListHelmCharts(ctx context.Context, repoID string) ([]*models.HelmChart, error)
+	ListHelmChartVersions(ctx context.Context, repoID, name string) ([]*models.HelmChart, error)
+
+	// PyPI methods
+	CreatePyPIPackage(ctx context.Context, pkg *models.PyPIPackage) error
+	GetPyPIPackage(ctx context.Context, repoID, name, version, filename string) (*models.PyPIPackage, error)
+	DeletePyPIPackage(ctx context.Context, repoID, name, version, filename string) error
+	ListPyPIPackages(ctx context.Context, repoID string) ([]*models.PyPIPackage, error)
+	ListPyPIPackageVersions(ctx context.Context, repoID, name string) ([]*models.PyPIPackage, error)
+
+	// NuGet methods
+	CreateNuGetPackage(ctx context.Context, pkg *models.NuGetPackage) error
+	GetNuGetPackage(ctx context.Context, repoID, packageID, version string) (*models.NuGetPackage, error)
+	DeleteNuGetPackage(ctx context.Context, repoID, packageID, version string) error
+	ListNuGetPackages(ctx context.Context, repoID string) ([]*models.NuGetPackage, error)
+	ListNuGetPackageVersions(ctx context.Context, repoID, packageID string) ([]*models.NuGetPackage, error)
+	SearchNuGetPackages(ctx context.Context, repoID, query string, skip, take int) ([]*models.NuGetPackage, int, error)
+	IncrementNuGetDownloadCount(ctx context.Context, repoID, packageID, version string) error
+
+	CreateUser(ctx context.Context, user *models.User) (*models.User, error)
+	GetUserByID(ctx context.Context, id string) (*models.User, error)
+	GetUserByUsername(ctx context.Context, username string) (*models.User, error)
+	UpdateUser(ctx context.Context, user *models.User) error
+	ListUsers(ctx context.Context, page, perPage int) ([]*models.User, int, error)
+	CountUsers(ctx context.Context) (int, error)
+
+	CreateGroup(ctx context.Context, group *models.Group) (*models.Group, error)
+	GetGroupByID(ctx context.Context, id string) (*models.Group, error)
+	UpdateGroup(ctx context.Context, group *models.Group) error
+	DeleteGroup(ctx context.Context, id string) error
+	ListGroups(ctx context.Context) ([]*models.Group, error)
+	AddUserToGroup(ctx context.Context, userID, groupID string) error
+	RemoveUserFromGroup(ctx context.Context, userID, groupID string) error
+	ListGroupsByUser(ctx context.Context, userID string) ([]*models.Group, error)
+	ListUsersByGroup(ctx context.Context, groupID string) ([]*models.User, error)
+
+	CreateSession(ctx context.Context, session *models.Session) (*models.Session, error)
+	GetSessionByTokenHash(ctx context.Context, hash string) (*models.Session, error)
+	DeleteSession(ctx context.Context, tokenHash string) error
+	UpdateSessionLastSeen(ctx context.Context, sessionID string, expiresAt time.Time) error
+
+	CreateToken(ctx context.Context, token *models.Token) (*models.Token, error)
+	GetTokenByHash(ctx context.Context, hash string) (*models.Token, error)
+	GetTokenByID(ctx context.Context, tokenID string) (*models.Token, error)
+	RevokeToken(ctx context.Context, tokenID string) error
+	UpdateTokenLastUsed(ctx context.Context, tokenID string) error
+	ListTokensByUser(ctx context.Context, userID string) ([]*models.Token, error)
+
+	CreatePermissionTarget(ctx context.Context, target *models.PermissionTarget) (*models.PermissionTarget, error)
+	GetPermissionTargetByID(ctx context.Context, id string) (*models.PermissionTarget, error)
+	GetPermissionTargetByName(ctx context.Context, name string) (*models.PermissionTarget, error)
+	UpdatePermissionTarget(ctx context.Context, target *models.PermissionTarget) error
+	DeletePermissionTarget(ctx context.Context, id string) error
+	ListPermissionTargets(ctx context.Context) ([]*models.PermissionTarget, error)
+	CreatePermissionAssignment(ctx context.Context, assignment *models.PermissionAssignment) error
+	DeletePermissionAssignment(ctx context.Context, targetID, principalType, principalID string) error
+	GetPermissionTargetsForPrincipal(ctx context.Context, userID string, groupIDs []string) ([]*models.PermissionTarget, error)
+	GetOrCreatePermissionAssignment(ctx context.Context, targetID, principalType, principalID string) error
+	SyncSSOPermissionsForGroup(ctx context.Context, groupID string, targetIDs []string) error
+
+	CreateSSOProvider(ctx context.Context, provider *models.SSOProvider) error
+	GetSSOProviderBySlug(ctx context.Context, slug string) (*models.SSOProvider, error)
+	GetSSOProviderByID(ctx context.Context, id string) (*models.SSOProvider, error)
+	UpdateSSOProvider(ctx context.Context, provider *models.SSOProvider) error
+	DeleteSSOProvider(ctx context.Context, id string) error
+	ListEnabledSSOProviders(ctx context.Context) ([]*models.SSOProvider, error)
+	ListAllSSOProviders(ctx context.Context) ([]*models.SSOProvider, error)
+	UpdateUserSSO(ctx context.Context, userID string, externalID, providerSlug string) error
+	SyncSSOGroups(ctx context.Context, userID string, groupIDs []string) error
+	GetUserByExternalID(ctx context.Context, externalID, providerSlug string) (*models.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
+	GetGroupByName(ctx context.Context, name string) (*models.Group, error)
+	GetOrCreateGroup(ctx context.Context, name string) (*models.Group, error)
+
+	ArtifactExists(ctx context.Context, sha256 string, repositoryID string) (bool, error)
+
+	// ArtifactExistsBySHA256 checks whether a blob with the given SHA-256 hash exists
+	// in ANY repository. Returns the repository ID of the first match and true if found.
+	// Use this for cross-repository deduplication: if the blob is already stored,
+	// the upload pipeline can skip re-uploading it to the blob store.
+	ArtifactExistsBySHA256(ctx context.Context, sha256 string) (repositoryID string, exists bool, err error)
+
+	// BlobReferenceCount returns the number of package-table rows referencing
+	// the blob identified by sha256, across every format table that stores a
+	// blob_id FK into the global blobs table. 0 means the blob is a GC
+	// candidate. Use SafeDeleteBlob (internal/storage/refcount.go) instead of
+	// calling blobStore.Delete directly.
+	BlobReferenceCount(ctx context.Context, sha256 string) (int, error)
+
+	// Go Module Proxy methods
+	CreateGoModule(ctx context.Context, mod *models.GoModule) error
+	GetGoModule(ctx context.Context, repoID, modulePath, version string) (*models.GoModule, error)
+	DeleteGoModule(ctx context.Context, repoID, modulePath, version string) error
+	ListGoModuleVersions(ctx context.Context, repoID, modulePath string) ([]*models.GoModule, error)
+	GetLatestGoModule(ctx context.Context, repoID, modulePath string) (*models.GoModule, error)
+
+	// ListGoModulesByRepo is a bulk-list-by-repo method used only by backup
+	// export (no module path filter required).
+	ListGoModulesByRepo(ctx context.Context, repoID string) ([]*models.GoModule, error)
+
+	InsertAuditLog(ctx context.Context, event *models.AuditLog) error
+	ListAuditLogs(ctx context.Context, page, perPage int, actor, action string) ([]*models.AuditLog, int, error)
+	ListAllTokens(ctx context.Context, page, perPage int) ([]*models.Token, int, error)
+
+	// Cleanup policy methods
+	CreateCleanupPolicy(ctx context.Context, policy *models.CleanupPolicy) error
+	GetCleanupPolicy(ctx context.Context, id string) (*models.CleanupPolicy, error)
+	UpdateCleanupPolicy(ctx context.Context, policy *models.CleanupPolicy) error
+	DeleteCleanupPolicy(ctx context.Context, id string) error
+	ListCleanupPolicies(ctx context.Context, repoID string) ([]*models.CleanupPolicy, error)
+	ListEnabledCleanupPolicies(ctx context.Context) ([]*models.CleanupPolicy, error)
+	UpdateCleanupPolicyRunResult(ctx context.Context, id string, deletedCount int, runErr error) error
+
+	// Webhook methods
+	CreateWebhook(ctx context.Context, wh *models.Webhook) error
+	GetWebhook(ctx context.Context, id string) (*models.Webhook, error)
+	UpdateWebhook(ctx context.Context, wh *models.Webhook) error
+	DeleteWebhook(ctx context.Context, id string) error
+	ListWebhooks(ctx context.Context, repoID string) ([]*models.Webhook, error) // repoID="" = global
+	ListWebhooksForEvent(ctx context.Context, repoID, eventType string) ([]*models.Webhook, error)
+	CreateWebhookDelivery(ctx context.Context, delivery *models.WebhookDelivery) error
+	UpdateWebhookDelivery(ctx context.Context, delivery *models.WebhookDelivery) error
+	ListWebhookDeliveries(ctx context.Context, webhookID string, limit int) ([]*models.WebhookDelivery, error)
+	ListPendingWebhookDeliveries(ctx context.Context) ([]*models.WebhookDelivery, error)
+
+	// Backup methods
+	CreateBackupJob(ctx context.Context, job *models.BackupJob) error
+	GetBackupJob(ctx context.Context, id string) (*models.BackupJob, error)
+	UpdateBackupJob(ctx context.Context, job *models.BackupJob) error
+	ListBackupJobs(ctx context.Context, limit int) ([]*models.BackupJob, error)
+
+	// Cargo methods
+	CreateCargoCrate(ctx context.Context, crate *models.CargoCrate) error
+	GetCargoCrate(ctx context.Context, repoID, name, version string) (*models.CargoCrate, error)
+	DeleteCargoCrate(ctx context.Context, id string) error
+	ListCargoCrateVersions(ctx context.Context, repoID, name string) ([]*models.CargoCrate, error)
+	SearchCargoCrates(ctx context.Context, repoID, query string, limit int) ([]*models.CargoCrate, error)
+	YankCargoCrate(ctx context.Context, repoID, name, version string, yanked bool) error
+	IncrementCargoDownloadCount(ctx context.Context, repoID, name, version string) error
+
+	// RubyGems methods
+	CreateRubyGem(ctx context.Context, gem *models.RubyGem) error
+	GetRubyGem(ctx context.Context, repoID, name, version, platform string) (*models.RubyGem, error)
+	DeleteRubyGem(ctx context.Context, id string) error
+	ListRubyGems(ctx context.Context, repoID string) ([]*models.RubyGem, error)
+	ListRubyGemVersions(ctx context.Context, repoID, name string) ([]*models.RubyGem, error)
+	SearchRubyGems(ctx context.Context, repoID, query string) ([]*models.RubyGem, error)
+	YankRubyGem(ctx context.Context, repoID, name, version string, yanked bool) error
+
+	// Raw artifact methods
+	UpsertRawArtifact(ctx context.Context, artifact *models.RawArtifact) error
+	GetRawArtifact(ctx context.Context, repoID, path string) (*models.RawArtifact, error)
+	DeleteRawArtifact(ctx context.Context, repoID, path string) error
+	ListRawArtifacts(ctx context.Context, repoID, prefix string) ([]*models.RawArtifact, error)
+
+	// SBOM methods
+	CreateSBOMReport(ctx context.Context, report *models.SBOMReport) error
+	GetSBOMReport(ctx context.Context, repoID, artifactID, format, specVersion string) (*models.SBOMReport, error)
+	ListSBOMReports(ctx context.Context, repoID string) ([]*models.SBOMReport, error)
+	DeleteSBOMReport(ctx context.Context, id string) error
+
+	// License compliance methods
+	CreateLicenseScanResult(ctx context.Context, result *models.LicenseScanResult) error
+	GetLicenseScanResult(ctx context.Context, repoID, artifactID string) (*models.LicenseScanResult, error)
+	UpdateLicenseScanResult(ctx context.Context, result *models.LicenseScanResult) error
+	ListLicenseScanResults(ctx context.Context, repoID string) ([]*models.LicenseScanResult, error)
+	CreateLicensePolicy(ctx context.Context, policy *models.LicensePolicy) error
+	GetLicensePolicy(ctx context.Context, id string) (*models.LicensePolicy, error)
+	UpdateLicensePolicy(ctx context.Context, policy *models.LicensePolicy) error
+	DeleteLicensePolicy(ctx context.Context, id string) error
+	ListLicensePolicies(ctx context.Context, repoID string) ([]*models.LicensePolicy, error)
+
+	// Secret detection methods
+	CreateSecretScanResult(ctx context.Context, result *models.SecretScanResult) error
+	GetSecretScanResult(ctx context.Context, repoID, artifactID string) (*models.SecretScanResult, error)
+	UpdateSecretScanResult(ctx context.Context, result *models.SecretScanResult) error
+	ListSecretScanResults(ctx context.Context, repoID string, flaggedOnly bool) ([]*models.SecretScanResult, error)
+	QuarantineArtifact(ctx context.Context, repoID, artifactID string, quarantined bool) error
+
+	// Vulnerability scanning methods
+	CreateVulnScanResult(ctx context.Context, result *models.VulnScanResult) error
+	GetVulnScanResult(ctx context.Context, repoID, artifactID string) (*models.VulnScanResult, error)
+	UpdateVulnScanResult(ctx context.Context, result *models.VulnScanResult) error
+	ListVulnScanResults(ctx context.Context, repoID string, vulnerableOnly bool) ([]*models.VulnScanResult, error)
+	QuarantineVulnArtifact(ctx context.Context, repoID, artifactID string, quarantined bool) error
+
+	// Storage quota methods
+	GetOrCreateStorageQuota(ctx context.Context, repoID string) (*models.StorageQuota, error)
+	UpdateStorageQuota(ctx context.Context, quota *models.StorageQuota) error
+	IncrementStorageUsage(ctx context.Context, repoID string, sizeBytes int64, artifactCount int) error
+	DecrementStorageUsage(ctx context.Context, repoID string, sizeBytes int64, artifactCount int) error
+
+	// Storage backends
+	CreateStorageBackend(ctx context.Context, backend *models.StorageBackend) error
+	ListStorageBackends(ctx context.Context) ([]*models.StorageBackend, error)
+	GetStorageBackend(ctx context.Context, name string) (*models.StorageBackend, error)
+	UpdateStorageBackend(ctx context.Context, backend *models.StorageBackend) error
+	DeleteStorageBackend(ctx context.Context, id string) error
+	UpdateStorageBackendStatus(ctx context.Context, id, status string, message *string) error
+
+	// Artifact properties methods
+	SetArtifactProperty(ctx context.Context, repoID, artifactID, key, value string) error
+	GetArtifactProperty(ctx context.Context, repoID, artifactID, key string) (string, error)
+	DeleteArtifactProperty(ctx context.Context, repoID, artifactID, key string) error
+	ListArtifactProperties(ctx context.Context, repoID, artifactID string) (map[string]string, error)
+	SearchByProperty(ctx context.Context, repoID, key, value string) ([]string, error)
+
+	// Package delta methods
+	CreatePackageDelta(ctx context.Context, delta *models.PackageDelta) error
+	GetPackageDelta(ctx context.Context, repoID, fromSHA256, toSHA256 string) (*models.PackageDelta, error)
+	ListPackageDeltas(ctx context.Context, repoID, toSHA256 string) ([]*models.PackageDelta, error)
+	DeletePackageDelta(ctx context.Context, id string) error
+
+	// Organization methods
+	CreateOrganization(ctx context.Context, org *models.Organization) error
+	GetOrganization(ctx context.Context, id string) (*models.Organization, error)
+	GetOrganizationByName(ctx context.Context, name string) (*models.Organization, error)
+	UpdateOrganization(ctx context.Context, org *models.Organization) error
+	DeleteOrganization(ctx context.Context, id string) error
+	ListOrganizations(ctx context.Context, userID string) ([]*models.Organization, error)
+	AddOrgMember(ctx context.Context, orgID, userID, role string) error
+	RemoveOrgMember(ctx context.Context, orgID, userID string) error
+	ListOrgMembers(ctx context.Context, orgID string) ([]*models.OrgMember, error)
+	GetOrgMember(ctx context.Context, orgID, userID string) (*models.OrgMember, error)
+	UpdateOrgMemberRole(ctx context.Context, orgID, userID, role string) error
+
+	// System settings methods
+	GetSystemSetting(ctx context.Context, key string) (string, error)
+	SetSystemSetting(ctx context.Context, key, value string) error
+
+	// Conda methods
+	CreateCondaPackage(ctx context.Context, pkg *models.CondaPackage) error
+	GetCondaPackage(ctx context.Context, repoID, name, version, buildString, platform string) (*models.CondaPackage, error)
+	DeleteCondaPackage(ctx context.Context, id string) error
+	ListCondaPackages(ctx context.Context, repoID, platform string) ([]*models.CondaPackage, error)
+
+	// ListAllCondaPackages is a bulk-list-by-repo method used only by backup
+	// export (no platform filter required).
+	ListAllCondaPackages(ctx context.Context, repoID string) ([]*models.CondaPackage, error)
+
+	// Conan methods
+	CreateConanPackage(ctx context.Context, pkg *models.ConanPackage) error
+	GetConanPackage(ctx context.Context, repoID, name, version, userChannel, recipeRevision string) (*models.ConanPackage, error)
+	DeleteConanPackage(ctx context.Context, id string) error
+	ListConanPackages(ctx context.Context, repoID string) ([]*models.ConanPackage, error)
+
+	// Ivy methods
+	CreateIvyArtifact(ctx context.Context, artifact *models.IvyArtifact) error
+	GetIvyArtifact(ctx context.Context, repoID, organisation, module, revision, artifactName, artifactExt string) (*models.IvyArtifact, error)
+	DeleteIvyArtifact(ctx context.Context, id string) error
+	ListIvyArtifacts(ctx context.Context, repoID string) ([]*models.IvyArtifact, error)
+
+	// SBT methods
+	CreateSBTArtifact(ctx context.Context, artifact *models.SBTArtifact) error
+	GetSBTArtifact(ctx context.Context, repoID, groupID, artifactID, version, filename string) (*models.SBTArtifact, error)
+	DeleteSBTArtifact(ctx context.Context, id string) error
+	ListSBTArtifacts(ctx context.Context, repoID string) ([]*models.SBTArtifact, error)
+
+	// Release bundle and promotion pipeline methods
+	CreatePromotionPipeline(ctx context.Context, p *models.PromotionPipeline) error
+	GetPromotionPipelineByName(ctx context.Context, name string) (*models.PromotionPipeline, error)
+	GetPromotionPipelineByID(ctx context.Context, id string) (*models.PromotionPipeline, error)
+	UpdatePromotionPipeline(ctx context.Context, p *models.PromotionPipeline) error
+	DeletePromotionPipeline(ctx context.Context, id string) error
+	ListPromotionPipelines(ctx context.Context) ([]*models.PromotionPipeline, error)
+
+	CreateReleaseBundle(ctx context.Context, b *models.ReleaseBundle) error
+	GetReleaseBundle(ctx context.Context, name, version string) (*models.ReleaseBundle, error)
+	GetReleaseBundleByID(ctx context.Context, id string) (*models.ReleaseBundle, error)
+	UpdateReleaseBundle(ctx context.Context, b *models.ReleaseBundle) error
+	DeleteReleaseBundle(ctx context.Context, id string) error
+	ListReleaseBundles(ctx context.Context, nameFilter, stateFilter string, page, limit int) ([]*models.ReleaseBundle, int, error)
+
+	AddBundleItem(ctx context.Context, item *models.ReleaseBundleItem) error
+	RemoveBundleItem(ctx context.Context, bundleID, sha256 string) error
+	ListBundleItems(ctx context.Context, bundleID string) ([]*models.ReleaseBundleItem, error)
+	GetBundleItem(ctx context.Context, bundleID, sha256 string) (*models.ReleaseBundleItem, error)
+
+	CreateBundlePromotion(ctx context.Context, p *models.BundlePromotion) error
+	UpdateBundlePromotion(ctx context.Context, p *models.BundlePromotion) error
+	ListBundlePromotions(ctx context.Context, bundleID string) ([]*models.BundlePromotion, error)
+
+	// AI analysis methods
+	UpsertAIAnalysis(ctx context.Context, analysis *models.AIAnalysis) error
+	GetAIAnalysis(ctx context.Context, repoID, artifactID string) (*models.AIAnalysis, error)
+	ListAIAnalyses(ctx context.Context, repoID string, status string, limit, offset int) ([]*models.AIAnalysis, int, error)
+	DeleteAIAnalysis(ctx context.Context, repoID, artifactID string) error
+	ListPendingAIAnalyses(ctx context.Context, limit int) ([]*models.AIAnalysis, error)
+}
+
+// Transaction defines the interface for database transactions.
+type Transaction interface {
+	// Commit commits the transaction
+	Commit() error
+
+	// Rollback rolls back the transaction
+	Rollback() error
+
+	// Exec executes a query without returning rows
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+
+	// Query executes a query that returns rows
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+
+	// QueryRow executes a query that returns a single row
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// DatabaseConfig contains database connection configuration.
+type DatabaseConfig struct {
+	Driver                 string            `yaml:"driver"` // "postgres", "mysql", "sqlite"
+	Host                   string            `yaml:"host"`
+	Port                   int               `yaml:"port"`
+	User                   string            `yaml:"user"`
+	Password               string            `yaml:"password"`
+	Database               string            `yaml:"database"`
+	SSLMode                string            `yaml:"sslMode"` // For PostgreSQL
+	Options                map[string]string `yaml:"options"`
+	MaxOpenConns           int               `yaml:"maxOpenConns"`           // Maximum number of open connections (default: 25)
+	MaxIdleConns           int               `yaml:"maxIdleConns"`           // Maximum number of idle connections (default: 5)
+	ConnMaxLifetimeMinutes int               `yaml:"connMaxLifetimeMinutes"` // Maximum lifetime of a connection in minutes (default: 30)
+}

@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Compiled binaries at the repo root (anchored so cmd/server/ etc. are not matched)
+/server
+/oa
+/openartifact
+/bin/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.html
+coverage.out
+coverage.txt
+
+# Logs / scratch
+*.log
+tmp/
+.tmp/
+
+# Environment
+.env
+.env.local
+.envrc
+web/.env*.local
+
+# Web (frontend) build & tooling
+web/node_modules/
+web/.vite/
+web/coverage/
+# Vite build output — keep placeholders so go:embed compiles without `npm run build`
+web/dist/*
+!web/dist/.gitkeep
+!web/dist/index.html

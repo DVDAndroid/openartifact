@@ -1,0 +1,323 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package storage
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+)
+
+// Sentinel errors for S3 Blob Store.
+var (
+	ErrS3PutRequiresSHA256 = errors.New("S3BlobStore.Put requires \"sha256\" in metadata")
+)
+
+// S3BlobStore implements BlobStore backed by Amazon S3 or any S3-compatible service.
+type S3BlobStore struct {
+	client     *s3.Client
+	uploader   *transfermanager.Client
+	presigner  *s3.PresignClient
+	bucket     string
+	presignTTL time.Duration
+}
+
+// NewS3BlobStore creates a new S3BlobStore from the provided StorageConfig.
+func NewS3BlobStore(cfg StorageConfig) (*S3BlobStore, error) {
+	opts := []func(*config.LoadOptions) error{
+		config.WithRegion(cfg.Region),
+	}
+
+	if cfg.AccessKey != "" && cfg.SecretKey != "" {
+		opts = append(opts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, ""),
+		))
+	}
+
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("s3: load config: %w", err)
+	}
+
+	s3Opts := func(o *s3.Options) {
+		o.UsePathStyle = cfg.ForcePathStyle
+		if cfg.Endpoint != "" {
+			o.BaseEndpoint = aws.String(cfg.Endpoint)
+		}
+	}
+
+	client := s3.NewFromConfig(awsCfg, s3Opts)
+
+	uploader := transfermanager.New(client, func(o *transfermanager.Options) {
+		o.PartSizeBytes = 64 * 1024 * 1024
+		o.Concurrency = 4
+	})
+
+	presigner := s3.NewPresignClient(client)
+
+	ttl := cfg.PresignTTL
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+
+	return &S3BlobStore{
+		client:     client,
+		uploader:   uploader,
+		presigner:  presigner,
+		bucket:     cfg.Bucket,
+		presignTTL: ttl,
+	}, nil
+}
+
+// objectKey computes the S3 object key for a given SHA-256 hex string.
+func objectKey(sha256 string) string {
+	return "blobs/" + sha256[:2] + "/" + sha256[2:4] + "/" + sha256
+}
+
+// ExportedObjectKey is the exported form of objectKey for testing.
+func ExportedObjectKey(sha256 string) string { return objectKey(sha256) }
+
+// clampTTL clamps a presign TTL to [1 minute, 1 hour].
+func clampTTL(ttl time.Duration) time.Duration {
+	if ttl < time.Minute {
+		return time.Minute
+	}
+
+	if ttl > time.Hour {
+		return time.Hour
+	}
+
+	return ttl
+}
+
+// ExportedClampTTL is the exported form of clampTTL for testing.
+func ExportedClampTTL(ttl time.Duration) time.Duration { return clampTTL(ttl) }
+
+// isNotFound reports whether an S3 error represents a missing object.
+// HeadObject returns *types.NotFound; GetObject/DeleteObject return *types.NoSuchKey.
+func isNotFound(err error) bool {
+	if _, ok := errors.AsType[*types.NoSuchKey](err); ok {
+		return true
+	}
+
+	_, ok := errors.AsType[*types.NotFound](err)
+
+	return ok
+}
+
+// Put uploads data to S3. The metadata map must contain a "sha256" key.
+func (s *S3BlobStore) Put(ctx context.Context, data io.Reader, metadata map[string]string) (string, error) {
+	sha, ok := metadata["sha256"]
+	if !ok {
+		return "", ErrS3PutRequiresSHA256
+	}
+
+	key := objectKey(sha)
+
+	_, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
+		Bucket:   aws.String(s.bucket),
+		Key:      aws.String(key),
+		Body:     data,
+		Metadata: metadata,
+	})
+	if err != nil {
+		return "", fmt.Errorf("s3: upload %s: %w", key, err)
+	}
+
+	return sha, nil
+}
+
+// Get retrieves a blob by its SHA-256 identifier.
+func (s *S3BlobStore) Get(ctx context.Context, id string) (io.ReadCloser, error) {
+	key := objectKey(id)
+
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			//nolint:err113 // dynamic error with runtime context
+			return nil, fmt.Errorf("blob not found: %s", id)
+		}
+
+		return nil, fmt.Errorf("s3: get %s: %w", key, err)
+	}
+
+	return out.Body, nil
+}
+
+// Delete removes a blob by its SHA-256 identifier. NoSuchKey is treated as success.
+func (s *S3BlobStore) Delete(ctx context.Context, id string) error {
+	key := objectKey(id)
+
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil && !isNotFound(err) {
+		return fmt.Errorf("s3: delete %s: %w", key, err)
+	}
+
+	return nil
+}
+
+// Exists checks whether a blob exists using HeadObject.
+func (s *S3BlobStore) Exists(ctx context.Context, id string) (bool, error) {
+	key := objectKey(id)
+
+	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err == nil {
+		return true, nil
+	}
+
+	if isNotFound(err) {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("s3: head %s: %w", key, err)
+}
+
+// GetSize returns the size of a blob in bytes using HeadObject.
+func (s *S3BlobStore) GetSize(ctx context.Context, id string) (int64, error) {
+	key := objectKey(id)
+
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			//nolint:err113 // dynamic error with runtime context
+			return 0, fmt.Errorf("blob not found: %s", id)
+		}
+
+		return 0, fmt.Errorf("s3: head %s: %w", key, err)
+	}
+
+	if out.ContentLength == nil {
+		return 0, fmt.Errorf("s3: nil ContentLength for %s", key) //nolint:err113 // dynamic error with runtime context
+	}
+
+	return *out.ContentLength, nil
+}
+
+// GetMetadata returns object metadata via HeadObject. Returns nil, nil if not found.
+func (s *S3BlobStore) GetMetadata(ctx context.Context, id string) (map[string]string, error) {
+	key := objectKey(id)
+
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil //nolint:nilnil // standard Go not-found pattern: nil pointer with nil error
+		}
+
+		return nil, fmt.Errorf("s3: head %s: %w", key, err)
+	}
+
+	return out.Metadata, nil
+}
+
+// List returns blob identifiers matching the given prefix, skipping offset and returning up to limit items.
+func (s *S3BlobStore) List(ctx context.Context, prefix string, limit int, offset int) ([]string, error) {
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String("blobs/" + prefix),
+	})
+
+	var ids []string
+
+	skipped := 0
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3: list: %w", err)
+		}
+
+		for _, obj := range page.Contents {
+			if obj.Key == nil {
+				continue
+			}
+
+			if skipped < offset {
+				skipped++
+				continue
+			}
+
+			if limit > 0 && len(ids) >= limit {
+				return ids, nil
+			}
+
+			id := strings.TrimPrefix(*obj.Key, "blobs/")
+			ids = append(ids, id)
+		}
+	}
+
+	return ids, nil
+}
+
+// ExistsBySHA256 checks whether a blob with the given SHA-256 hash exists using HeadObject.
+func (s *S3BlobStore) ExistsBySHA256(ctx context.Context, sha256 string) (string, bool, error) {
+	key := objectKey(sha256)
+
+	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err == nil {
+		return sha256, true, nil
+	}
+
+	if isNotFound(err) {
+		return "", false, nil
+	}
+
+	return "", false, fmt.Errorf("s3: head %s: %w", key, err)
+}
+
+// PresignURL returns a presigned GetObject URL with a clamped TTL.
+func (s *S3BlobStore) PresignURL(ctx context.Context, sha256 string, ttl time.Duration) (string, error) {
+	ttl = clampTTL(ttl)
+	key := objectKey(sha256)
+
+	req, err := s.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("s3: presign %s: %w", key, err)
+	}
+
+	return req.URL, nil
+}
+
+// HealthCheck verifies S3 bucket accessibility via HeadBucket.
+func (s *S3BlobStore) HealthCheck(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("s3: health check: %w", err)
+	}
+
+	return nil
+}

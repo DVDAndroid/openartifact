@@ -1,0 +1,515 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package config
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestLoad_Defaults(t *testing.T) {
+	t.Run("default values", func(t *testing.T) {
+		for _, k := range []string{
+			"SERVER_HOST", "SERVER_PORT", "LOG_LEVEL", "DB_HOST", "DB_PORT",
+			"DB_DRIVER", "DB_SSLMODE", "STORAGE_BACKEND", "STORAGE_TYPE",
+			"ALLOW_ANONYMOUS_READ", "SESSION_DURATION_HOURS", "CORS_ORIGINS",
+		} {
+			if v, ok := os.LookupEnv(k); ok {
+				_ = os.Unsetenv(k)
+				t.Cleanup(func() { _ = os.Setenv(k, v) })
+			}
+		}
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Server.Host != "0.0.0.0" {
+			t.Errorf("expected host=0.0.0.0, got %s", cfg.Server.Host)
+		}
+
+		if cfg.Server.Port != 8080 {
+			t.Errorf("expected port=8080, got %d", cfg.Server.Port)
+		}
+
+		if cfg.Logger.Level != "info" {
+			t.Errorf("expected log level=info, got %s", cfg.Logger.Level)
+		}
+
+		if cfg.Database.Host != "localhost" {
+			t.Errorf("expected db host=localhost, got %s", cfg.Database.Host)
+		}
+
+		if cfg.Database.Port != 5432 {
+			t.Errorf("expected db port=5432, got %d", cfg.Database.Port)
+		}
+
+		if cfg.Database.Driver != "postgres" {
+			t.Errorf("expected db driver=postgres, got %s", cfg.Database.Driver)
+		}
+		if cfg.Database.SSLMode != "require" {
+			t.Errorf("expected db ssl mode=require, got %s", cfg.Database.SSLMode)
+		}
+
+		if cfg.Storage.Type != "filesystem" {
+			t.Errorf("expected storage type=filesystem, got %s", cfg.Storage.Type)
+		}
+
+		if cfg.Auth.AllowAnonymousRead != false {
+			t.Errorf("expected AllowAnonymousRead=false, got %v", cfg.Auth.AllowAnonymousRead)
+		}
+
+		if cfg.Auth.SessionDurationHours != 24 {
+			t.Errorf("expected SessionDurationHours=24, got %d", cfg.Auth.SessionDurationHours)
+		}
+	})
+}
+
+func TestLoad_CustomPort(t *testing.T) {
+	t.Setenv("SERVER_PORT", "9090")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	if cfg.Server.Port != 9090 {
+		t.Errorf("expected port=9090, got %d", cfg.Server.Port)
+	}
+}
+
+func TestLoad_DatabaseConfig(t *testing.T) {
+	t.Run("database config from env", func(t *testing.T) {
+		t.Setenv("DB_HOST", "db.example.com")
+		t.Setenv("DB_PORT", "3306")
+		t.Setenv("DB_NAME", "mydb")
+		t.Setenv("DB_USER", "dbuser")
+		t.Setenv("DB_PASSWORD", "dbpass123")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Database.Host != "db.example.com" {
+			t.Errorf("expected DB_HOST=db.example.com, got %s", cfg.Database.Host)
+		}
+
+		if cfg.Database.Port != 3306 {
+			t.Errorf("expected DB_PORT=3306, got %d", cfg.Database.Port)
+		}
+
+		if cfg.Database.Database != "mydb" {
+			t.Errorf("expected DB_NAME=mydb, got %s", cfg.Database.Database)
+		}
+
+		if cfg.Database.User != "dbuser" {
+			t.Errorf("expected DB_USER=dbuser, got %s", cfg.Database.User)
+		}
+
+		if cfg.Database.Password != "dbpass123" {
+			t.Errorf("expected DB_PASSWORD=dbpass123, got %s", cfg.Database.Password)
+		}
+	})
+}
+
+func TestLoad_StorageConfig(t *testing.T) {
+	t.Run("storage config from env", func(t *testing.T) {
+		backend, backendSet := os.LookupEnv("STORAGE_BACKEND")
+		if err := os.Unsetenv("STORAGE_BACKEND"); err != nil {
+			t.Fatalf("clearing STORAGE_BACKEND: %v", err)
+		}
+		t.Cleanup(func() {
+			var err error
+			if backendSet {
+				err = os.Setenv("STORAGE_BACKEND", backend)
+			} else {
+				err = os.Unsetenv("STORAGE_BACKEND")
+			}
+			if err != nil {
+				t.Errorf("restoring STORAGE_BACKEND: %v", err)
+			}
+		})
+		t.Setenv("STORAGE_TYPE", "s3")
+		t.Setenv("STORAGE_ENDPOINT", "https://s3.amazonaws.com")
+		t.Setenv("STORAGE_BUCKET", "my-bucket")
+		t.Setenv("STORAGE_REGION", "us-west-2")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Storage.Type != "s3" {
+			t.Errorf("expected storage type=s3, got %s", cfg.Storage.Type)
+		}
+
+		if cfg.Storage.Endpoint != "https://s3.amazonaws.com" {
+			t.Errorf("expected endpoint=https://s3.amazonaws.com, got %s", cfg.Storage.Endpoint)
+		}
+
+		if cfg.Storage.Bucket != "my-bucket" {
+			t.Errorf("expected bucket=my-bucket, got %s", cfg.Storage.Bucket)
+		}
+
+		if cfg.Storage.Region != "us-west-2" {
+			t.Errorf("expected region=us-west-2, got %s", cfg.Storage.Region)
+		}
+	})
+}
+
+func TestLoad_AuthConfig(t *testing.T) {
+	t.Run("auth config from env", func(t *testing.T) {
+		t.Setenv("ALLOW_ANONYMOUS_READ", "true")
+		t.Setenv("SESSION_DURATION_HOURS", "48")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Auth.AllowAnonymousRead != true {
+			t.Errorf("expected AllowAnonymousRead=true, got %v", cfg.Auth.AllowAnonymousRead)
+		}
+
+		if cfg.Auth.SessionDurationHours != 48 {
+			t.Errorf("expected SessionDurationHours=48, got %d", cfg.Auth.SessionDurationHours)
+		}
+	})
+}
+
+func TestLoad_BaseURL(t *testing.T) {
+	t.Run("base url from env", func(t *testing.T) {
+		t.Setenv("BASE_URL", "https://example.com")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.BaseURL != "https://example.com" {
+			t.Errorf("expected BASE_URL=https://example.com, got %s", cfg.BaseURL)
+		}
+	})
+
+	t.Run("base url default", func(t *testing.T) {
+		// Don't set BASE_URL
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.BaseURL != "http://localhost:8080" {
+			t.Errorf("expected default BASE_URL=http://localhost:8080, got %s", cfg.BaseURL)
+		}
+	})
+}
+
+func TestLoad_CORSOrigins(t *testing.T) {
+	t.Run("cors origins from env", func(t *testing.T) {
+		t.Setenv("CORS_ORIGINS", "http://a.com,http://b.com")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if len(cfg.Server.CORSOrigins) != 2 {
+			t.Errorf("expected 2 CORS origins, got %d", len(cfg.Server.CORSOrigins))
+		}
+
+		if cfg.Server.CORSOrigins[0] != "http://a.com" {
+			t.Errorf("expected first origin=http://a.com, got %s", cfg.Server.CORSOrigins[0])
+		}
+
+		if cfg.Server.CORSOrigins[1] != "http://b.com" {
+			t.Errorf("expected second origin=http://b.com, got %s", cfg.Server.CORSOrigins[1])
+		}
+	})
+
+	t.Run("cors origins default", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if len(cfg.Server.CORSOrigins) != 0 {
+			t.Errorf("expected default CORS origins=[], got %v", cfg.Server.CORSOrigins)
+		}
+	})
+}
+
+func TestValidate_Valid(t *testing.T) {
+	t.Run("valid config", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		err = cfg.Validate()
+		if err != nil {
+			t.Errorf("Validate() should not fail for valid config: %v", err)
+		}
+	})
+}
+
+func TestValidate_InvalidPort(t *testing.T) {
+	t.Run("invalid port", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		cfg.Server.Port = 99999
+
+		err = cfg.Validate()
+		if err == nil {
+			t.Error("Validate() should fail for invalid port")
+		}
+
+		if !strings.Contains(err.Error(), "invalid server port") {
+			t.Errorf("expected error about invalid port, got: %v", err)
+		}
+	})
+}
+
+func TestValidate_MissingDBDriver(t *testing.T) {
+	t.Run("missing db driver", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		cfg.Database.Driver = ""
+
+		err = cfg.Validate()
+		if err == nil {
+			t.Error("Validate() should fail for missing database driver")
+		}
+
+		if !strings.Contains(err.Error(), "database driver is required") {
+			t.Errorf("expected error about missing driver, got: %v", err)
+		}
+	})
+}
+
+func TestValidate_MissingStorageType(t *testing.T) {
+	t.Run("missing storage type", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		cfg.Storage.Type = ""
+
+		err = cfg.Validate()
+		if err == nil {
+			t.Error("Validate() should fail for missing storage type")
+		}
+
+		if !strings.Contains(err.Error(), "storage type is required") {
+			t.Errorf("expected error about missing storage type, got: %v", err)
+		}
+	})
+}
+
+func TestValidate_MissingLogLevel(t *testing.T) {
+	t.Run("missing log level", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		cfg.Logger.Level = ""
+
+		err = cfg.Validate()
+		if err == nil {
+			t.Error("Validate() should fail for missing log level")
+		}
+
+		if !strings.Contains(err.Error(), "logger level is required") {
+			t.Errorf("expected error about missing log level, got: %v", err)
+		}
+	})
+}
+
+func TestLoad_ServerTimeouts(t *testing.T) {
+	t.Run("server timeouts", func(t *testing.T) {
+		t.Setenv("SERVER_READ_TIMEOUT", "30")
+		t.Setenv("SERVER_WRITE_TIMEOUT", "45")
+		t.Setenv("SERVER_SHUTDOWN_TIMEOUT", "60")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Server.ReadTimeout != 30 {
+			t.Errorf("expected ReadTimeout=30, got %d", cfg.Server.ReadTimeout)
+		}
+
+		if cfg.Server.WriteTimeout != 45 {
+			t.Errorf("expected WriteTimeout=45, got %d", cfg.Server.WriteTimeout)
+		}
+
+		if cfg.Server.ShutdownTimeout != 60 {
+			t.Errorf("expected ShutdownTimeout=60, got %d", cfg.Server.ShutdownTimeout)
+		}
+	})
+}
+
+func TestLoad_TLSConfig(t *testing.T) {
+	t.Run("tls config", func(t *testing.T) {
+		t.Setenv("SERVER_TLS_ENABLED", "true")
+		t.Setenv("SERVER_TLS_CERT", "/path/to/cert.pem")
+		t.Setenv("SERVER_TLS_KEY", "/path/to/key.pem")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Server.TLSEnabled != true {
+			t.Errorf("expected TLSEnabled=true, got %v", cfg.Server.TLSEnabled)
+		}
+
+		if cfg.Server.TLSCert != "/path/to/cert.pem" {
+			t.Errorf("expected TLSCert=/path/to/cert.pem, got %s", cfg.Server.TLSCert)
+		}
+
+		if cfg.Server.TLSKey != "/path/to/key.pem" {
+			t.Errorf("expected TLSKey=/path/to/key.pem, got %s", cfg.Server.TLSKey)
+		}
+	})
+}
+
+func TestLoad_APIKey(t *testing.T) {
+	t.Run("api key", func(t *testing.T) {
+		t.Setenv("API_KEY", "secret-api-key-123")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Server.APIKey != "secret-api-key-123" {
+			t.Errorf("expected APIKey=secret-api-key-123, got %s", cfg.Server.APIKey)
+		}
+	})
+}
+
+func TestLoad_GPGConfig(t *testing.T) {
+	t.Run("gpg config", func(t *testing.T) {
+		t.Setenv("GPG_ENABLED", "true")
+		t.Setenv("GPG_KEY_PATH", "/home/user/.gnupg/pubring.gpg")
+		t.Setenv("GPG_AUTO_GENERATE", "true")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.GPG.Enabled != true {
+			t.Errorf("expected GPG.Enabled=true, got %v", cfg.GPG.Enabled)
+		}
+
+		if cfg.GPG.KeyPath != "/home/user/.gnupg/pubring.gpg" {
+			t.Errorf("expected GPG.KeyPath=/home/user/.gnupg/pubring.gpg, got %s", cfg.GPG.KeyPath)
+		}
+
+		if cfg.GPG.AutoGenerate != true {
+			t.Errorf("expected GPG.AutoGenerate=true, got %v", cfg.GPG.AutoGenerate)
+		}
+	})
+}
+
+func TestLoad_BackupConfig(t *testing.T) {
+	t.Run("backup config", func(t *testing.T) {
+		t.Setenv("OPENARTIFACT_BACKUP_DIR", "/backups/custom")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Backup.BackupDir != "/backups/custom" {
+			t.Errorf("expected BackupDir=/backups/custom, got %s", cfg.Backup.BackupDir)
+		}
+	})
+}
+
+func TestLoad_TimeoutDefaults(t *testing.T) {
+	t.Run("read/write timeouts default to unbounded, header timeout stays sane", func(t *testing.T) {
+		// Explicitly clear so ambient env vars in the test runner never mask
+		// the defaults under test (overrideInt no-ops on an unparsable/empty
+		// value, so it falls through to defaultConfig's value).
+		t.Setenv("SERVER_READ_TIMEOUT", "")
+		t.Setenv("SERVER_WRITE_TIMEOUT", "")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Server.ReadTimeout != 0 {
+			t.Errorf("expected default ReadTimeout=0 (unbounded), got %d", cfg.Server.ReadTimeout)
+		}
+
+		if cfg.Server.WriteTimeout != 0 {
+			t.Errorf("expected default WriteTimeout=0 (unbounded), got %d", cfg.Server.WriteTimeout)
+		}
+
+		if cfg.Server.ReadHeaderTimeout <= 0 {
+			t.Errorf("expected a positive default ReadHeaderTimeout to mitigate slowloris, got %d", cfg.Server.ReadHeaderTimeout)
+		}
+	})
+}
+
+func TestLoad_ReadHeaderTimeoutOverride(t *testing.T) {
+	t.Run("read header timeout from env", func(t *testing.T) {
+		t.Setenv("SERVER_READ_HEADER_TIMEOUT", "25")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if cfg.Server.ReadHeaderTimeout != 25 {
+			t.Errorf("expected ReadHeaderTimeout=25, got %d", cfg.Server.ReadHeaderTimeout)
+		}
+	})
+}
+
+func TestLoad_TrustedProxies(t *testing.T) {
+	t.Run("defaults to empty (no proxy trusted)", func(t *testing.T) {
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if len(cfg.Server.TrustedProxies) != 0 {
+			t.Errorf("expected empty TrustedProxies by default, got %v", cfg.Server.TrustedProxies)
+		}
+	})
+
+	t.Run("trusted proxies from env", func(t *testing.T) {
+		t.Setenv("OPENARTIFACT_TRUSTED_PROXIES", "10.0.0.0/8,192.168.1.0/24")
+
+		cfg, err := Load("")
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+
+		if len(cfg.Server.TrustedProxies) != 2 {
+			t.Fatalf("expected 2 trusted proxy CIDRs, got %v", cfg.Server.TrustedProxies)
+		}
+
+		if cfg.Server.TrustedProxies[0] != "10.0.0.0/8" || cfg.Server.TrustedProxies[1] != "192.168.1.0/24" {
+			t.Errorf("unexpected trusted proxies: %v", cfg.Server.TrustedProxies)
+		}
+	})
+}

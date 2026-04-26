@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# OpenArtifact configuration file
+# All values here can be overridden by environment variables.
+# Validate with: openartifact verify openartifact.yaml
+# Start with:    openartifact -config openartifact.yaml (or OPENARTIFACT_CONFIG=...)
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  readTimeout: 15      # seconds
+  writeTimeout: 15     # seconds
+  shutdownTimeout: 30  # seconds
+  # tlsEnabled: false
+  # tlsCert: /etc/openartifact/tls/cert.pem
+  # tlsKey: /etc/openartifact/tls/key.pem
+  # Replace with the trusted browser origin.
+  corsOrigins:
+    - "https://app.example.com"
+  # ipAllowlist:
+  #   - "10.0.0.0/8"
+  #   - "192.168.0.0/16"
+  # rateLimitRps: 100
+
+baseUrl: "http://localhost:8080"
+
+database:
+  driver: "postgres"
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "CHANGE_ME"
+  database: "artifact_repo"
+  # "require" by default; use "disable" only for local development without TLS.
+  sslMode: "require"
+  maxOpenConns: 25
+  maxIdleConns: 5
+  connMaxLifetimeMinutes: 30
+
+storage:
+  # type: filesystem | s3 | gcs | azure | garage | seaweedfs | oci
+  type: "filesystem"
+  path: "/var/lib/artifacts"
+  # S3 / S3-compatible:
+  # type: s3
+  # bucket: openartifact
+  # region: us-east-1
+  # accessKey: CHANGE_ME
+  # secretKey: CHANGE_ME
+  # endpoint: http://minio:9000
+  # forcePathStyle: true
+
+log:
+  level: "info"    # debug | info | warn | error
+  format: "json"   # json | text
+  output: "stdout"
+
+auth:
+  allowAnonymousRead: false
+  legacyApiKeyEnabled: false
+  sessionDurationHours: 24
+  # hmacKey: "CHANGE_ME"  # generated ephemerally if not set
+
+gpg:
+  enabled: false
+  # keyPath: /etc/openartifact/gpg/private.key
+  # passphrase: ""
+  # autoGenerate: false
+
+backup:
+  backupDir: "/var/lib/openartifact/backups"
+
+ai:
+  enabled: false
+  provider: "openai"   # openai | azure | ollama | custom
+  # baseUrl: "https://api.openai.com/v1"
+  # apiKey: "CHANGE_ME"
+  model: "gpt-4o-mini"
+  maxTokens: 1024
+  timeoutSecs: 30
+  # systemPrompt: ""  # leave empty to use built-in prompt
+
+mcp:
+  enabled: false
+  transport: "http"   # http | stdio
+  httpPath: "/mcp"

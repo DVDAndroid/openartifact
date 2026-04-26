@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+services:
+  postgres:
+    image: docker.io/postgres:18-alpine
+    container_name: artifact-repo-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-artifact_repo}
+    # Postgres is reachable only on the compose network. To expose it for
+    # local debugging, add: ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      # Postgres 18+ stores data under /var/lib/postgresql/<major>/docker;
+      # mount the parent so pg_upgrade and the new layout work without
+      # mount-boundary issues. See docker-library/postgres PR #1259.
+      - postgres_data:/var/lib/postgresql
+      # Schema migrations are applied by the application at startup
+      # (embedded via go:embed). Mounting them as initdb.d would make
+      # Postgres apply them once, after which the app's auto-migrate
+      # crashes on duplicate triggers/indexes.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - artifact-repo-network
+
+  openartifact:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        VERSION: ${OPENARTIFACT_VERSION:-dev}
+    container_name: openartifact
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      SERVER_READ_TIMEOUT: 15
+      SERVER_WRITE_TIMEOUT: 15
+      SERVER_SHUTDOWN_TIMEOUT: 30
+      DB_DRIVER: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in docker/.env}
+      DB_NAME: ${POSTGRES_DB:-artifact_repo}
+      # The bundled Postgres is local-only and does not enable TLS.
+      DB_SSLMODE: disable
+      STORAGE_BACKEND: filesystem
+      STORAGE_PATH: /var/lib/artifacts
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    ports:
+      - "8080:8080"
+    volumes:
+      - artifacts_data:/var/lib/artifacts
+    networks:
+      - artifact-repo-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  artifacts_data:
+
+networks:
+  artifact-repo-network:
+    driver: bridge

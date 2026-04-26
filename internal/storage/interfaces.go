@@ -1,0 +1,73 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package storage
+
+import (
+	"context"
+	"errors"
+	"io"
+	"time"
+)
+
+// ErrPresignNotSupported is returned by storage backends that do not support presigned URLs.
+var ErrPresignNotSupported = errors.New("presign URL not supported by this storage backend")
+
+// BlobStore defines the interface for blob storage operations.
+type BlobStore interface {
+	// Put stores a blob and returns its identifier
+	Put(ctx context.Context, data io.Reader, metadata map[string]string) (string, error)
+
+	// Get retrieves a blob by its identifier
+	Get(ctx context.Context, id string) (io.ReadCloser, error)
+
+	// Delete removes a blob by its identifier
+	Delete(ctx context.Context, id string) error
+
+	// Exists checks if a blob exists
+	Exists(ctx context.Context, id string) (bool, error)
+
+	// GetMetadata retrieves metadata for a blob
+	GetMetadata(ctx context.Context, id string) (map[string]string, error)
+
+	// List returns a list of blob identifiers with optional filtering
+	List(ctx context.Context, prefix string, limit int, offset int) ([]string, error)
+
+	// GetSize returns the size of a blob in bytes
+	GetSize(ctx context.Context, id string) (int64, error)
+
+	// ExistsBySHA256 checks if a blob with the given SHA-256 hash exists.
+	// Returns the blobID and true if found, or ("", false, nil) if not found.
+	ExistsBySHA256(ctx context.Context, sha256 string) (blobID string, exists bool, err error)
+
+	// PresignURL returns a presigned URL for direct blob download.
+	// Returns ErrPresignNotSupported if the backend does not support presigned URLs.
+	PresignURL(ctx context.Context, sha256 string, ttl time.Duration) (string, error)
+}
+
+// StorageConfig contains configuration for blob storage.
+type StorageConfig struct {
+	// Type selects the storage backend.
+	// Supported values: "filesystem", "s3", "gcs", "azure", "garage", "seaweedfs", "oci".
+	Type               string            `yaml:"type"`               // "s3", "filesystem", "gcs", "azure", "garage", "seaweedfs", "oci"
+	Endpoint           string            `yaml:"endpoint"`           // For S3-compatible services (s3, garage, seaweedfs) or OCI registry URL
+	Bucket             string            `yaml:"bucket"`             // Bucket/container name (s3, garage, seaweedfs) or OCI repository prefix
+	Region             string            `yaml:"region"`             // AWS region or equivalent
+	AccessKey          string            `yaml:"accessKey"`          // Access credentials
+	SecretKey          string            `yaml:"secretKey"`          // Secret credentials
+	Path               string            `yaml:"path"`               // Local filesystem path
+	Options            map[string]string `yaml:"options"`            // Additional options
+	ForcePathStyle     bool              `yaml:"forcePathStyle"`     // Use path-style S3 addressing (required for MinIO, Garage, SeaweedFS)
+	PresignTTL         time.Duration     `yaml:"presignTtl"`         // Default TTL for presigned URLs
+	GCSBucket          string            `yaml:"gcsBucket"`          // GCS bucket name
+	GCSHMACKey         string            `yaml:"gcsHmacKey"`         // GCS HMAC access key
+	GCSHMACSecret      string            `yaml:"gcsHmacSecret"`      // GCS HMAC secret key
+	AzureAccountName   string            `yaml:"azureAccountName"`   // Azure storage account name
+	AzureAccountKey    string            `yaml:"azureAccountKey"`    // Azure storage account key
+	AzureContainerName string            `yaml:"azureContainerName"` // Azure container name
+	// OCI-specific fields
+	OCIInsecure bool   `yaml:"ociInsecure"` // Allow plain HTTP for OCI registry (dev/testing only)
+	OCIUsername string `yaml:"ociUsername"` // OCI registry username
+	OCIPassword string `yaml:"ociPassword"` // OCI registry password
+}

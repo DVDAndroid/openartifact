@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+version: "2"
+sql:
+  - engine: "postgresql"
+    # schema points at the real migrations/ dir (not a hand-maintained mirror):
+    # migrations/*.sql is the single source of truth for the DB shape.
+    # sqlc's catalog builder replays any DML/DO-block/BEGIN-COMMIT statements
+    # in migrations as no-ops, so pointing here directly works cleanly.
+    schema: "migrations"
+    queries: "internal/database/queries"
+    gen:
+      go:
+        package: "dbsqlc"
+        out: "internal/database/dbsqlc"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_db_tags: true
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        overrides:
+          # UUID → string (both nullable and non-nullable)
+          - db_type: "uuid"
+            nullable: false
+            go_type: "string"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true
+          # varchar/text → string
+          - db_type: "pg_catalog.varchar"
+            go_type: "string"
+          - db_type: "text"
+            go_type: "string"
+          # JSONB → json.RawMessage
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"
+          # bytea → []byte
+          - db_type: "bytea"
+            go_type:
+              type: "[]byte"
+          # timestamptz → time.Time (non-nullable)
+          - db_type: "timestamptz"
+            nullable: false
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: false
+            go_type: "time.Time"
+          # timestamptz → *time.Time (nullable)
+          - db_type: "timestamptz"
+            nullable: true
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type: "time.Time"

@@ -1,0 +1,202 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package nuget
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
+
+	"github.com/openartifact/openartifact/internal/format"
+	"github.com/openartifact/openartifact/internal/format/base"
+)
+
+const (
+	maxNuGetPackageBytes = 100 << 20
+	maxNuGetNuspecBytes  = 4 << 20
+)
+
+type NuGetHandler struct{}
+
+func NewNuGetHandler() *NuGetHandler {
+	return &NuGetHandler{}
+}
+
+func (h *NuGetHandler) Name() string {
+	return "nuget"
+}
+
+func (h *NuGetHandler) GetContentType() string {
+	return "application/zip"
+}
+
+func (h *NuGetHandler) GetFileExtension() string {
+	return ".nupkg"
+}
+
+func (h *NuGetHandler) Validate(ctx context.Context, r io.Reader) error {
+	_, err := parseNuspec(r)
+	if err != nil {
+		return fmt.Errorf("invalid nuget package: %w", err)
+	}
+
+	return nil
+}
+
+func (h *NuGetHandler) Parse(ctx context.Context, r io.Reader) (map[string]any, error) {
+	nuspec, err := parseNuspec(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse nuget package: %w", err)
+	}
+
+	metadata := nuspec.Metadata
+	result := map[string]any{
+		"id":                       metadata.ID,
+		"version":                  metadata.Version,
+		"title":                    metadata.Title,
+		"description":              metadata.Description,
+		"summary":                  metadata.Summary,
+		"authors":                  metadata.Authors,
+		"owners":                   metadata.Owners,
+		"tags":                     metadata.Tags,
+		"projectUrl":               metadata.ProjectURL,
+		"licenseUrl":               metadata.LicenseURL,
+		"iconUrl":                  metadata.IconURL,
+		"requireLicenseAcceptance": metadata.RequireLicenseAcceptance,
+		"minClientVersion":         metadata.MinClientVersion,
+	}
+
+	return result, nil
+}
+
+// Nuspec represents the .nuspec XML structure.
+type Nuspec struct {
+	XMLName  xml.Name `xml:"package"`
+	Metadata NuspecMetadata
+}
+
+type NuspecMetadata struct {
+	XMLName                  xml.Name           `xml:"metadata"`
+	ID                       string             `xml:"id"`
+	Version                  string             `xml:"version"`
+	Title                    string             `xml:"title"`
+	Description              string             `xml:"description"`
+	Summary                  string             `xml:"summary"`
+	Authors                  string             `xml:"authors"`
+	Owners                   string             `xml:"owners"`
+	Tags                     string             `xml:"tags"`
+	ProjectURL               string             `xml:"projectUrl"`
+	LicenseURL               string             `xml:"licenseUrl"`
+	IconURL                  string             `xml:"iconUrl"`
+	RequireLicenseAcceptance string             `xml:"requireLicenseAcceptance"`
+	MinClientVersion         string             `xml:"minClientVersion"`
+	Dependencies             NuspecDependencies `xml:"dependencies"`
+}
+
+// NuspecDependency is a single <dependency id="..." version="..."/> entry.
+type NuspecDependency struct {
+	ID      string `xml:"id,attr"`
+	Version string `xml:"version,attr"`
+}
+
+// NuspecDependencyGroup is a <dependencies><group> element, scoping a set
+// of dependencies to one target framework moniker (TFM).
+type NuspecDependencyGroup struct {
+	TargetFramework string             `xml:"targetFramework,attr"`
+	Dependencies    []NuspecDependency `xml:"dependency"`
+}
+
+// NuspecDependencies models <package><metadata><dependencies>, which may mix
+// framework-scoped <group> elements with legacy ungrouped <dependency>
+// elements (no target framework).
+type NuspecDependencies struct {
+	Groups       []NuspecDependencyGroup `xml:"group"`
+	Dependencies []NuspecDependency      `xml:"dependency"`
+}
+
+// DependencyGroups converts the parsed <dependencies> element into the
+// NuGet V3 registration catalogEntry "dependencyGroups" shape:
+// https://learn.microsoft.com/en-us/nuget/api/registration-base-url-resource#package-dependency-group
+func (d NuspecDependencies) DependencyGroups() []map[string]any {
+	groups := make([]map[string]any, 0, len(d.Groups)+1)
+
+	if len(d.Dependencies) > 0 {
+		groups = append(groups, nuspecDependencyGroupEntry("", d.Dependencies))
+	}
+
+	for _, g := range d.Groups {
+		groups = append(groups, nuspecDependencyGroupEntry(g.TargetFramework, g.Dependencies))
+	}
+
+	return groups
+}
+
+func nuspecDependencyGroupEntry(targetFramework string, deps []NuspecDependency) map[string]any {
+	items := make([]map[string]any, len(deps))
+	for i, dep := range deps {
+		items[i] = map[string]any{"id": dep.ID, "range": dep.Version}
+	}
+
+	entry := map[string]any{"dependencies": items}
+	if targetFramework != "" {
+		entry["targetFramework"] = targetFramework
+	}
+
+	return entry
+}
+
+// parseNuspec extracts and parses the .nuspec XML from a .nupkg (zip) file.
+func parseNuspec(r io.Reader) (*Nuspec, error) {
+	// Read the entire content into memory for zip reading
+	data, err := base.ReadAllLimited(r, maxNuGetPackageBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read package: %w", err)
+	}
+
+	// Open as zip
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to open as zip: %w", err)
+	}
+
+	// Find .nuspec file
+	var nuspecFile *zip.File
+
+	for _, f := range zr.File {
+		if len(f.Name) > 7 && f.Name[len(f.Name)-7:] == ".nuspec" {
+			nuspecFile = f
+			break
+		}
+	}
+
+	if nuspecFile == nil {
+		return nil, errors.New("no .nuspec file found in package") //nolint:err113 // static error
+	}
+
+	// Read and parse .nuspec
+	rc, err := nuspecFile.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open .nuspec: %w", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	nuspecData, err := base.ReadAllLimited(rc, maxNuGetNuspecBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read .nuspec: %w", err)
+	}
+
+	var nuspec Nuspec
+	if err := xml.Unmarshal(nuspecData, &nuspec); err != nil {
+		return nil, fmt.Errorf("failed to parse .nuspec XML: %w", err)
+	}
+
+	return &nuspec, nil
+}
+
+var _ format.FormatHandler = (*NuGetHandler)(nil)

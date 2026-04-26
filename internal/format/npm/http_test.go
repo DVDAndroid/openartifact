@@ -1,0 +1,147 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package npm
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/openartifact/openartifact/internal/database"
+	"github.com/openartifact/openartifact/internal/database/models"
+	"github.com/openartifact/openartifact/pkg/logger"
+)
+
+// tarballMockDB provides just enough of database.Database for handleTarball.
+type tarballMockDB struct {
+	database.BaseMockDB
+
+	repo     *models.Repository
+	pkg      *models.NPMPackage
+	versions []*models.NPMVersion
+}
+
+func (m *tarballMockDB) GetRepositoryByName(_ context.Context, _ string) (*models.Repository, error) {
+	return m.repo, nil
+}
+
+func (m *tarballMockDB) GetNPMPackageByName(_ context.Context, _, _ string) (*models.NPMPackage, error) {
+	return m.pkg, nil
+}
+
+func (m *tarballMockDB) GetNPMVersionsByPackage(_ context.Context, _ string) ([]*models.NPMVersion, error) {
+	return m.versions, nil
+}
+
+// tarballMockBlobStore is a minimal content-addressed in-memory blob store.
+type tarballMockBlobStore struct {
+	blobs map[string][]byte
+}
+
+func (m *tarballMockBlobStore) Put(_ context.Context, data io.Reader, metadata map[string]string) (string, error) {
+	b, _ := io.ReadAll(data)
+	id := metadata["sha256"]
+	m.blobs[id] = b
+
+	return id, nil
+}
+
+func (m *tarballMockBlobStore) Get(_ context.Context, id string) (io.ReadCloser, error) {
+	b, ok := m.blobs[id]
+	if !ok {
+		return nil, io.ErrUnexpectedEOF
+	}
+
+	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+func (m *tarballMockBlobStore) Delete(_ context.Context, id string) error {
+	delete(m.blobs, id)
+	return nil
+}
+
+func (m *tarballMockBlobStore) Exists(_ context.Context, id string) (bool, error) {
+	_, ok := m.blobs[id]
+	return ok, nil
+}
+
+func (m *tarballMockBlobStore) GetMetadata(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (m *tarballMockBlobStore) List(_ context.Context, _ string, _ int, _ int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *tarballMockBlobStore) GetSize(_ context.Context, id string) (int64, error) {
+	b, ok := m.blobs[id]
+	if !ok {
+		return 0, io.ErrUnexpectedEOF
+	}
+
+	return int64(len(b)), nil
+}
+
+func (m *tarballMockBlobStore) ExistsBySHA256(_ context.Context, sha256 string) (string, bool, error) {
+	_, ok := m.blobs[sha256]
+	return sha256, ok, nil
+}
+
+func (m *tarballMockBlobStore) PresignURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	return "", nil
+}
+
+// TestHandleTarball_ContentLengthMatchesBody verifies that the handler sets
+// Content-Length to the actual blob size.
+func TestHandleTarball_ContentLengthMatchesBody(t *testing.T) {
+	payload := []byte("this is definitely not zero bytes of tarball content")
+
+	bs := &tarballMockBlobStore{blobs: map[string][]byte{"sha-abc": payload}}
+	db := &tarballMockDB{
+		repo: &models.Repository{ID: "repo-1", Name: "myrepo"},
+		pkg:  &models.NPMPackage{ID: "pkg-1", FullName: "lodash"},
+		versions: []*models.NPMVersion{
+			{ID: "v1", PackageID: "pkg-1", Version: "1.0.0", BlobID: "sha-abc", TarballFilename: "lodash-1.0.0.tgz"},
+		},
+	}
+
+	log, err := logger.New("info", "json", "stdout")
+	if err != nil {
+		t.Fatalf("logger.New: %v", err)
+	}
+
+	h := NewHTTPHandler(log, db, bs, "http://localhost:8080")
+	router := chi.NewRouter()
+	router.Route("/repos/{name}", func(r chi.Router) {
+		h.RegisterRepoRoutes(r)
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/repos/myrepo/lodash/-/lodash-1.0.0.tgz", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	wantLen := strconv.Itoa(len(payload))
+	if got := w.Header().Get("Content-Length"); got != wantLen {
+		t.Errorf("Content-Length header = %q, want %q", got, wantLen)
+	}
+
+	if w.Body.Len() != len(payload) {
+		t.Errorf("body length = %d, want %d", w.Body.Len(), len(payload))
+	}
+
+	if !bytes.Equal(w.Body.Bytes(), payload) {
+		t.Error("body content does not match stored blob")
+	}
+}

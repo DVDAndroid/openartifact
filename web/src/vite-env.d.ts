@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+/// <reference types="vite/client" />
+
+declare module '*.css' {
+  const content: string
+  export default content
+}

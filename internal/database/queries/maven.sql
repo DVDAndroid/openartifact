@@ -1,0 +1,57 @@
+-- name: CreateMavenArtifact :one
+INSERT INTO maven_artifacts (repository_id, blob_id, group_id, artifact_id_coord, version, classifier, extension, snapshot_timestamp, snapshot_build_number, is_snapshot, repo_path)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (repository_id, repo_path) DO UPDATE SET
+    blob_id = EXCLUDED.blob_id,
+    updated_at = now()
+RETURNING id;
+
+-- name: GetMavenArtifactByPath :one
+SELECT id, repository_id,
+       blob_id,
+       group_id, artifact_id_coord, version, classifier, extension,
+       snapshot_timestamp, snapshot_build_number, is_snapshot, repo_path,
+       created_at, updated_at
+FROM maven_artifacts
+WHERE repository_id = $1 AND repo_path = $2;
+
+-- name: GetMavenArtifactsByGAV :many
+SELECT id, repository_id,
+       blob_id,
+       group_id, artifact_id_coord, version, classifier, extension,
+       snapshot_timestamp, snapshot_build_number, is_snapshot, repo_path,
+       created_at, updated_at
+FROM maven_artifacts
+WHERE repository_id = $1 AND group_id = $2 AND artifact_id_coord = $3 AND version = $4;
+
+-- name: GetMavenArtifactsByGA :many
+SELECT id, repository_id,
+       blob_id,
+       group_id, artifact_id_coord, version, classifier, extension,
+       snapshot_timestamp, snapshot_build_number, is_snapshot, repo_path,
+       created_at, updated_at
+FROM maven_artifacts
+WHERE repository_id = $1 AND group_id = $2 AND artifact_id_coord = $3;
+
+-- name: GetLatestSnapshot :one
+SELECT id, repository_id,
+       blob_id,
+       group_id, artifact_id_coord, version, classifier, extension,
+       snapshot_timestamp, snapshot_build_number, is_snapshot, repo_path,
+       created_at, updated_at
+FROM maven_artifacts
+WHERE repository_id = $1 AND group_id = $2 AND artifact_id_coord = $3 AND version = $4 AND is_snapshot = true
+ORDER BY snapshot_timestamp DESC, snapshot_build_number DESC
+LIMIT 1;
+
+-- name: DeleteMavenArtifact :exec
+DELETE FROM maven_artifacts WHERE id = $1;
+
+-- name: ListMavenArtifactsByRepo :many
+SELECT ma.id, ma.repository_id, b.sha256 AS blob_sha256, b.size_bytes AS blob_size_bytes,
+       ma.group_id, ma.artifact_id_coord, ma.version, ma.classifier, ma.extension,
+       ma.snapshot_timestamp, ma.snapshot_build_number, ma.is_snapshot, ma.repo_path,
+       ma.created_at, ma.updated_at
+FROM maven_artifacts ma
+JOIN blobs b ON b.id = ma.blob_id
+WHERE ma.repository_id = $1;

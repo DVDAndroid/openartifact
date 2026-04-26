@@ -1,0 +1,326 @@
+<!--
+SPDX-FileCopyrightText: The OpenArtifact Authors
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
+<template>
+  <div class="fixed inset-0 grid lg:grid-cols-[1.05fr_1fr] bg-bg overflow-hidden">
+
+    <!-- ═══════════════════════════════════════════════
+         LEFT — Brand panel (desktop only)
+    ════════════════════════════════════════════════ -->
+    <div
+      class="relative hidden lg:flex flex-col justify-between p-10 overflow-hidden bg-gradient-to-br from-primary/10 via-bg to-bg border-r border-border"
+    >
+      <!-- SVG grid pattern -->
+      <svg
+        class="absolute inset-0 h-full w-full opacity-[0.06] pointer-events-none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M 32 0 L 0 0 0 32" fill="none" stroke="currentColor" stroke-width="0.5" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+      </svg>
+
+      <!-- Radial glow — top-left -->
+      <div
+        class="absolute -top-20 -left-20 w-[480px] h-[480px] pointer-events-none"
+        style="background: radial-gradient(closest-side, rgb(var(--color-primary) / 0.20), transparent)"
+      ></div>
+
+      <!-- Radial glow — bottom-right -->
+      <div
+        class="absolute -bottom-32 -right-10 w-[380px] h-[380px] pointer-events-none"
+        style="background: radial-gradient(closest-side, rgb(var(--color-primary) / 0.10), transparent)"
+      ></div>
+
+       <!-- Top — brand mark -->
+       <div class="relative flex items-center gap-3">
+         <div class="w-8 h-8 bg-gradient-to-br from-primary to-primary/60 rounded-lg flex items-center justify-center shrink-0">
+           <svg viewBox="0 0 24 24" class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12v8a1 1 0 001 1h16a1 1 0 001-1v-8"/><rect x="2" y="9" width="20" height="3" rx="0.5"/><path d="M7 9V5h10v4"/><path d="M7 5l5-2.5L17 5"/></svg>
+         </div>
+        <div>
+          <span class="text-[15px] font-semibold tracking-tight">Open<span class="text-primary">Artifact</span></span>
+          <p class="text-[10px] uppercase tracking-[0.16em] text-muted font-mono leading-none mt-0.5">v3.4 · stable</p>
+        </div>
+      </div>
+
+      <!-- Middle — hero text -->
+      <div class="relative">
+        <p class="text-[10px] uppercase tracking-[0.16em] font-mono text-primary mb-3">
+          Artifact repository · self-hosted
+        </p>
+        <h1 class="text-4xl font-bold tracking-tight leading-[1.1] text-foreground">
+          One registry for every<br />build artifact your team ships.
+        </h1>
+        <p class="mt-4 text-sm text-muted leading-relaxed max-w-sm">
+          Host, version, and distribute Docker images, npm packages, Maven
+          artifacts, Python wheels, Helm charts, and more — all from a single,
+          self-hosted registry your team already trusts.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-1.5">
+          <FormatBadge format="docker" />
+          <FormatBadge format="npm" />
+          <FormatBadge format="maven" />
+          <FormatBadge format="pypi" />
+          <FormatBadge format="helm" />
+          <FormatBadge format="cargo" />
+          <FormatBadge format="rpm" />
+          <FormatBadge format="deb" />
+          <FormatBadge format="nuget" />
+          <FormatBadge format="gomod" />
+          <FormatBadge format="rubygems" />
+          <FormatBadge format="raw" />
+        </div>
+      </div>
+
+      <!-- Bottom — footer -->
+      <div class="relative flex items-center justify-between text-[11px] text-muted font-mono">
+        <span>© 2026 OpenArtifact · MIT</span>
+        <span class="flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+          All systems operational
+        </span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         RIGHT — Form panel
+    ════════════════════════════════════════════════ -->
+    <div class="relative flex items-center justify-center p-6 sm:p-10">
+      <div class="w-full max-w-sm">
+
+         <!-- Mobile brand mark (hidden on lg+) -->
+         <div class="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
+           <div class="w-8 h-8 bg-gradient-to-br from-primary to-primary/60 rounded-lg flex items-center justify-center">
+             <svg viewBox="0 0 24 24" class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12v8a1 1 0 001 1h16a1 1 0 001-1v-8"/><rect x="2" y="9" width="20" height="3" rx="0.5"/><path d="M7 9V5h10v4"/><path d="M7 5l5-2.5L17 5"/></svg>
+           </div>
+          <span class="text-[15px] font-semibold tracking-tight">Open<span class="text-primary">Artifact</span></span>
+        </div>
+
+        <!-- Page heading -->
+        <div class="mb-7">
+          <h2 class="text-2xl font-bold tracking-tight text-foreground">Sign in</h2>
+          <p class="mt-1 text-sm text-muted">Welcome back. Sign in to manage your repositories.</p>
+        </div>
+
+        <!-- Login form -->
+        <form class="space-y-3.5" @submit.prevent="handleSubmit">
+
+          <!-- Username -->
+          <div>
+            <label for="username" class="block text-[11px] uppercase tracking-[0.14em] font-semibold text-muted">
+              {{ t('auth.username') }}
+            </label>
+            <input
+              id="username"
+              v-model="form.username"
+              type="text"
+              autocomplete="username"
+              required
+              class="mt-1.5 w-full h-10 px-3 rounded-md bg-surface-hover/40 border border-border focus:bg-surface focus:border-primary/50 focus:ring-2 focus:ring-primary/20 text-sm font-mono text-foreground outline-none transition-colors"
+            />
+          </div>
+
+          <!-- Password -->
+          <div>
+            <div class="flex items-center justify-between">
+              <label for="password" class="block text-[11px] uppercase tracking-[0.14em] font-semibold text-muted">
+                {{ t('auth.password') }}
+              </label>
+              <a href="#" class="text-[11px] text-primary hover:underline">Forgot?</a>
+            </div>
+            <div class="relative mt-1.5">
+              <input
+                id="password"
+                v-model="form.password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                required
+                class="w-full h-10 pl-3 pr-10 rounded-md bg-surface-hover/40 border border-border focus:bg-surface focus:border-primary/50 focus:ring-2 focus:ring-primary/20 text-sm font-mono text-foreground outline-none transition-colors"
+              />
+              <button
+                type="button"
+                class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-muted hover:text-foreground hover:bg-surface-hover transition-colors"
+                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                @click="showPassword = !showPassword"
+              >
+                <EyeSlashIcon v-if="showPassword" class="w-4 h-4" />
+                <EyeIcon v-else class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Remember checkbox -->
+          <label class="flex items-center gap-2 text-sm text-foreground/80 select-none cursor-pointer">
+            <input
+              v-model="rememberDevice"
+              type="checkbox"
+              class="rounded accent-[rgb(var(--color-primary))]"
+            />
+            Remember this device for 30 days
+          </label>
+
+          <!-- Error message -->
+          <div
+            v-if="errorMsg"
+            role="alert"
+            class="flex items-start gap-2 p-2.5 rounded-md bg-danger/10 border border-danger/20 text-danger text-xs"
+          >
+            <XMarkIcon class="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>{{ errorMsg }}</span>
+          </div>
+
+          <!-- Submit button -->
+          <button
+            type="submit"
+            :disabled="loading"
+            class="w-full h-10 rounded-md bg-primary text-primary-contrast font-medium text-sm hover:bg-primary/90 active:scale-[0.97] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <template v-if="loading">
+              <span class="w-3.5 h-3.5 rounded-full border-2 border-primary-contrast/40 border-t-primary-contrast animate-spin"></span>
+              Signing in…
+            </template>
+            <template v-else>
+              {{ t('auth.signIn') }}
+              <ArrowRightIcon class="w-3.5 h-3.5" />
+            </template>
+          </button>
+        </form>
+
+        <!-- SSO section -->
+        <template v-if="ssoProviders.length > 0">
+          <!-- Divider -->
+          <div class="my-5 flex items-center gap-3">
+            <span class="flex-1 h-px bg-border"></span>
+            <span class="text-[10px] uppercase tracking-[0.16em] font-mono text-muted">or continue with</span>
+            <span class="flex-1 h-px bg-border"></span>
+          </div>
+
+          <!-- SSO buttons -->
+          <div class="grid gap-2">
+            <a
+              v-for="provider in ssoProviders"
+              :key="provider.slug"
+              :href="`/api/v1/auth/sso/${provider.kind}/${provider.slug}/login`"
+              class="group h-10 rounded-md border border-border bg-surface hover:bg-surface-hover transition-colors flex items-center gap-2.5 px-3 text-sm"
+            >
+              <!-- Provider icon -->
+              <svg
+                v-if="ssoBrandIcon(provider.slug)"
+                :viewBox="ssoBrandIcon(provider.slug)!.viewBox"
+                class="w-6 h-6 shrink-0"
+                aria-hidden="true"
+                fill="currentColor"
+                :style="{ color: providerColor(provider.slug) }"
+              >
+                <path :d="ssoBrandIcon(provider.slug)!.path" />
+              </svg>
+              <span
+                v-else
+                class="w-5 h-5 rounded-sm flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                :style="{ backgroundColor: providerColor(provider.slug) }"
+                aria-hidden="true"
+              >
+                {{ provider.display_name.charAt(0).toUpperCase() }}
+              </span>
+              <span class="font-medium text-foreground">Continue with {{ provider.display_name }}</span>
+              <span class="ml-auto text-[10px] font-mono text-muted">{{ provider.kind.toUpperCase() }}</span>
+            </a>
+          </div>
+        </template>
+
+        <!-- Footer note -->
+        <p class="mt-7 text-center text-[11px] text-muted">
+          By signing in you agree to your organization's
+          <a href="#" class="underline underline-offset-2 hover:text-foreground transition-colors">
+            acceptable use policy
+          </a>.
+        </p>
+
+      </div>
+    </div>
+
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  XMarkIcon,
+  ArrowRightIcon,
+} from '@heroicons/vue/24/outline'
+import { login, listSSOProviders } from '../api/auth'
+import type { SSOProvider } from '../api/auth'
+import { useSessionStore } from '../stores/session'
+import FormatBadge from '../components/FormatBadge.vue'
+import { t } from '../i18n/en'
+import { ssoBrandIcon } from '../lib/brandIcons'
+
+const router = useRouter()
+const route = useRoute()
+const session = useSessionStore()
+
+const form = ref({ username: '', password: '' })
+const loading = ref(false)
+const errorMsg = ref('')
+const showPassword = ref(false)
+const rememberDevice = ref(false)
+const ssoProviders = ref<SSOProvider[]>([])
+
+// Map well-known provider slugs/names to brand colours; fall back to primary
+const PROVIDER_COLOURS: Record<string, string> = {
+  google: '#4285F4',
+  github: '#24292F',
+  gitlab: '#FC6D26',
+  microsoft: '#00A4EF',
+  azure: '#0078D4',
+  okta: '#007DC1',
+  auth0: '#EB5424',
+  keycloak: '#4D9A00',
+  onelogin: '#1E3A5F',
+  ping: '#E8401C',
+  adfs: '#0078D4',
+}
+
+function providerColor(slug: string): string {
+  const key = slug.toLowerCase()
+  for (const [k, v] of Object.entries(PROVIDER_COLOURS)) {
+    if (key.includes(k)) return v
+  }
+  return 'rgb(var(--color-primary))'
+}
+
+onMounted(async () => {
+  ssoProviders.value = await listSSOProviders()
+})
+
+async function handleSubmit(): Promise<void> {
+  errorMsg.value = ''
+  loading.value = true
+  try {
+    const user = await login(form.value)
+    session.user = user
+    // Fetch full profile (includes is_admin) before navigating so the
+    // sidebar admin section is visible immediately without a reload.
+    await session.fetchMe()
+    if (session.mustChangePassword) {
+      await router.push({ name: 'change-password' })
+      return
+    }
+    const next = typeof route.query.next === 'string' ? route.query.next : '/'
+    await router.push(next)
+  } catch (err: unknown) {
+    errorMsg.value = err instanceof Error ? err.message : t('auth.loginFailed')
+  } finally {
+    loading.value = false
+  }
+}
+</script>

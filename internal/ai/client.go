@@ -1,0 +1,300 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package ai
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+)
+
+var errNoChoices = errors.New("no choices in response")
+
+const defaultSystemPrompt = `You are an expert DevOps and Software Architecture AI embedded within a corporate Artifact Manager. Your job is to analyze uploaded software packages (via their manifest and dependency files), assess them for quality, and generate searchable metadata.
+
+You will be provided with the raw text of package manifests (e.g., package.json, pom.xml), readmes, or dependency trees.
+
+Perform the following tasks:
+1. Summary: Write a concise, 2-sentence description of what this package does.
+2. Categorization: Generate an array of 3 to 5 highly relevant technical tags for search indexing.
+3. License Check: Identify the license. Flag "SAFE" for permissive licenses (MIT, Apache 2.0, BSD) and "REVIEW_REQUIRED" for copyleft or missing licenses (GPL, AGPL).
+4. Dependency Health: Note any glaringly outdated or notoriously insecure dependencies if visible in the manifest.
+
+### STRICT OUTPUT FORMAT ###
+You must respond ONLY with a valid, minified JSON object matching the exact structure below. Do not include markdown formatting like ` + "```" + `json, greetings, or conversational text.
+
+{"artifact_summary":"string","tags":["string","string","string"],"license_status":"SAFE | REVIEW_REQUIRED | UNKNOWN","license_name":"string","security_notes":"string","quarantine_recommended":false}`
+
+// AnalysisResult is the structured JSON the LLM must return.
+type AnalysisResult struct {
+	ArtifactSummary       string   `json:"artifact_summary"`
+	Tags                  []string `json:"tags"`
+	LicenseStatus         string   `json:"license_status"`
+	LicenseName           string   `json:"license_name"`
+	SecurityNotes         string   `json:"security_notes"`
+	QuarantineRecommended bool     `json:"quarantine_recommended"`
+}
+
+// UsageInfo holds token usage from the API response.
+type UsageInfo struct {
+	PromptTokens     int
+	CompletionTokens int
+}
+
+// Config holds AI client configuration.
+type Config struct {
+	Provider     string // "openai", "azure", "ollama"
+	BaseURL      string // override endpoint
+	APIKey       string
+	Model        string
+	MaxTokens    int
+	TimeoutSecs  int
+	SystemPrompt string
+}
+
+// Client is an OpenAI-compatible LLM client.
+type Client struct {
+	cfg          Config
+	httpClient   *http.Client
+	baseURL      string
+	systemPrompt string
+}
+
+// NewClient creates a new AI client from config.
+func NewClient(cfg Config) *Client {
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		switch cfg.Provider {
+		case "azure":
+			// Azure requires BaseURL to be set explicitly
+			baseURL = cfg.BaseURL
+		case "ollama":
+			baseURL = "http://localhost:11434/v1"
+		default: // openai
+			baseURL = "https://api.openai.com/v1"
+		}
+	}
+
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	systemPrompt := cfg.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+
+	timeout := time.Duration(cfg.TimeoutSecs) * time.Second
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
+	return &Client{
+		cfg: cfg,
+		httpClient: &http.Client{
+			Timeout: timeout,
+		},
+		baseURL:      baseURL,
+		systemPrompt: systemPrompt,
+	}
+}
+
+// chatRequest is the OpenAI chat completions request body.
+type chatRequest struct {
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Temperature float64       `json:"temperature"`
+}
+
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type chatResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
+}
+
+// Analyze sends manifest text to the LLM and returns structured analysis.
+func (c *Client) Analyze(ctx context.Context, manifestText string) (*AnalysisResult, *UsageInfo, error) {
+	reqBody := chatRequest{
+		Model: c.cfg.Model,
+		Messages: []chatMessage{
+			{Role: "system", Content: c.systemPrompt},
+			{Role: "user", Content: manifestText},
+		},
+		MaxTokens:   c.cfg.MaxTokens,
+		Temperature: 0.1, // low temperature for deterministic JSON output
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	endpoint := c.baseURL + "/chat/completions"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, nil, fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	if c.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("http request: %w", err)
+	}
+
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("api error %d: %s", resp.StatusCode, string(respBytes)) //nolint:err113 // dynamic error with runtime context
+	}
+
+	var chatResp chatResponse
+	if err := json.Unmarshal(respBytes, &chatResp); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	if chatResp.Error != nil {
+		return nil, nil, fmt.Errorf("api error: %s", chatResp.Error.Message) //nolint:err113 // dynamic error with runtime context
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return nil, nil, errNoChoices
+	}
+
+	content := strings.TrimSpace(chatResp.Choices[0].Message.Content)
+	// Strip markdown code fences if the model ignores instructions
+	content = stripMarkdownFences(content)
+
+	var result AnalysisResult
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return nil, nil, fmt.Errorf("parse llm json output: %w (raw: %s)", err, content)
+	}
+
+	// Normalize license_status
+	switch strings.ToUpper(result.LicenseStatus) {
+	case "SAFE":
+		result.LicenseStatus = "SAFE"
+	case "REVIEW_REQUIRED":
+		result.LicenseStatus = "REVIEW_REQUIRED"
+	default:
+		result.LicenseStatus = "UNKNOWN"
+	}
+
+	usage := &UsageInfo{
+		PromptTokens:     chatResp.Usage.PromptTokens,
+		CompletionTokens: chatResp.Usage.CompletionTokens,
+	}
+
+	return &result, usage, nil
+}
+
+// ListModels fetches the list of available models from the API.
+func (c *Client) ListModels(ctx context.Context) ([]string, error) {
+	// Create a context with 10s timeout if not already shorter
+	ctxWithTimeout := ctx
+	if deadline, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+
+		ctxWithTimeout, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	} else {
+		// Check if existing deadline is more than 10s away
+		remaining := time.Until(deadline)
+		if remaining > 10*time.Second {
+			var cancel context.CancelFunc
+
+			ctxWithTimeout, cancel = context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+		}
+	}
+
+	endpoint := c.baseURL + "/models"
+
+	req, err := http.NewRequestWithContext(ctxWithTimeout, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	if c.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("api error %d: %s", resp.StatusCode, string(respBytes)) //nolint:err113 // dynamic error with runtime context
+	}
+
+	type modelsResponse struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	var modelsResp modelsResponse
+	if err := json.Unmarshal(respBytes, &modelsResp); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	// Extract model IDs and sort
+	models := make([]string, len(modelsResp.Data))
+	for i, m := range modelsResp.Data {
+		models[i] = m.ID
+	}
+
+	// Sort alphabetically
+	sort.Strings(models)
+
+	return models, nil
+}
+
+func stripMarkdownFences(s string) string {
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
+
+	return strings.TrimSpace(s)
+}

@@ -1,0 +1,133 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package auth
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/openartifact/openartifact/internal/database"
+	"github.com/openartifact/openartifact/internal/database/models"
+)
+
+const (
+	TokenPrefixAccess = "oa_pat_"
+	TokenPrefixDeploy = "oa_dep_"
+	TokenKindAccess   = "access"
+	TokenKindDeploy   = "deploy"
+)
+
+func CreateToken(ctx context.Context, db database.Database, kind, name, userID string, scopes []string, expiresAt *time.Time) (string, *models.Token, error) {
+	if kind != TokenKindAccess && kind != TokenKindDeploy {
+		return "", nil, fmt.Errorf("invalid token kind: %s", kind) //nolint:err113 // dynamic error with runtime context
+	}
+
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, fmt.Errorf("generate token bytes: %w", err)
+	}
+
+	body := hex.EncodeToString(raw)
+
+	var prefix string
+	if kind == TokenKindAccess {
+		prefix = TokenPrefixAccess
+	} else {
+		prefix = TokenPrefixDeploy
+	}
+
+	tokenString := prefix + body
+
+	hashBytes := sha256.Sum256([]byte(body))
+	tokenHash := hex.EncodeToString(hashBytes[:])
+
+	if scopes == nil {
+		scopes = []string{}
+	}
+
+	token := &models.Token{
+		UserID:    userID,
+		Name:      name,
+		Kind:      kind,
+		TokenHash: tokenHash,
+		Scopes:    scopes,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
+	}
+
+	saved, err := db.CreateToken(ctx, token)
+	if err != nil {
+		return "", nil, fmt.Errorf("create token: %w", err)
+	}
+
+	return tokenString, saved, nil
+}
+
+func ValidateToken(ctx context.Context, db database.Database, tokenString string) (*models.Token, *models.User, error) {
+	var body string
+
+	switch {
+	case strings.HasPrefix(tokenString, TokenPrefixAccess):
+		body = strings.TrimPrefix(tokenString, TokenPrefixAccess)
+	case strings.HasPrefix(tokenString, TokenPrefixDeploy):
+		body = strings.TrimPrefix(tokenString, TokenPrefixDeploy)
+	default:
+		return nil, nil, nil
+	}
+
+	hashBytes := sha256.Sum256([]byte(body))
+	tokenHash := hex.EncodeToString(hashBytes[:])
+
+	token, err := db.GetTokenByHash(ctx, tokenHash)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if token == nil {
+		return nil, nil, nil
+	}
+
+	if token.RevokedAt != nil {
+		return nil, nil, nil
+	}
+
+	if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
+		return nil, nil, nil
+	}
+
+	user, err := db.GetUserByID(ctx, token.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if user == nil || user.Disabled {
+		return nil, nil, nil
+	}
+
+	return token, user, nil
+}
+
+func UpdateLastUsed(ctx context.Context, db database.Database, tokenID string) {
+	//nolint:gosec // G118: token cleanup runs in background goroutine by design
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("panic in goroutine: %v", r)
+			}
+		}()
+		bgCtx := context.Background()
+		_ = db.UpdateTokenLastUsed(bgCtx, tokenID)
+	}()
+}
+
+func RevokeToken(ctx context.Context, db database.Database, tokenID string) error {
+	return db.RevokeToken(ctx, tokenID)
+}

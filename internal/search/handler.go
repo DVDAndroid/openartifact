@@ -1,0 +1,194 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package search
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"strconv"
+
+	"github.com/google/uuid"
+	"github.com/openartifact/openartifact/internal/auth"
+	"github.com/openartifact/openartifact/internal/middleware"
+	"github.com/openartifact/openartifact/pkg/logger"
+)
+
+type Searcher interface {
+	CountResults(ctx context.Context, filter SearchFilter, readableRepos map[uuid.UUID]struct{}) (int64, error)
+	Search(ctx context.Context, filter SearchFilter, limit, offset int, readableRepos map[uuid.UUID]struct{}) ([]SearchResult, error)
+}
+
+type Handler struct {
+	searcher  Searcher
+	db        *sql.DB
+	evaluator *auth.Evaluator
+	log       *logger.Logger
+}
+
+func NewHandler(db *sql.DB, evaluator *auth.Evaluator, log *logger.Logger) *Handler {
+	return &Handler{
+		searcher:  NewExecutor(db),
+		db:        db,
+		evaluator: evaluator,
+		log:       log,
+	}
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_q", "query parameter 'q' is required")
+		return
+	}
+
+	limit := 25
+
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			writeJSONError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+
+		if n > 100 {
+			writeJSONError(w, http.StatusBadRequest, "invalid_limit", "limit must not exceed 100")
+			return
+		}
+
+		limit = n
+	}
+
+	offset := 0
+
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeJSONError(w, http.StatusBadRequest, "invalid_offset", "offset must be a non-negative integer")
+			return
+		}
+
+		offset = n
+	}
+
+	filter := ParseQuery(q)
+	filter.Formats = append(filter.Formats, r.URL.Query()["format"]...)
+	filter.Repos = append(filter.Repos, r.URL.Query()["repo"]...)
+
+	principal := middleware.PrincipalFromContext(ctx)
+
+	readableRepos, err := h.resolveReadableRepos(ctx, principal)
+	if err != nil {
+		h.log.Errorw("resolve readable repos failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "permission resolution failed")
+
+		return
+	}
+
+	count, err := h.searcher.CountResults(ctx, filter, readableRepos)
+	if err != nil {
+		h.log.Errorw("search count failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "search failed")
+
+		return
+	}
+
+	if count > 10000 {
+		writeJSONError(w, http.StatusBadRequest, "query_too_broad", "query too broad; add more filters")
+		return
+	}
+
+	results, err := h.searcher.Search(ctx, filter, limit, offset, readableRepos)
+	if err != nil {
+		h.log.Errorw("search failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "search failed")
+
+		return
+	}
+
+	if results == nil {
+		results = []SearchResult{}
+	}
+
+	// Split results into packages (with version) and repositories (without version)
+	packages := []SearchResult{}
+	repositories := []SearchResult{}
+
+	for _, result := range results {
+		if result.Version != "" {
+			packages = append(packages, result)
+		} else {
+			repositories = append(repositories, result)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if encErr := json.NewEncoder(w).Encode(map[string]any{
+		"total":        count,
+		"results":      results,
+		"packages":     packages,
+		"repositories": repositories,
+	}); encErr != nil {
+		_ = encErr // response header already written
+	}
+}
+
+func (h *Handler) resolveReadableRepos(ctx context.Context, principal *auth.Principal) (map[uuid.UUID]struct{}, error) {
+	rows, err := h.db.QueryContext(ctx, `SELECT id, name FROM repositories`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	readable := make(map[uuid.UUID]struct{})
+
+	for rows.Next() {
+		var (
+			rawID string
+			name  string
+		)
+		if err := rows.Scan(&rawID, &name); err != nil {
+			return nil, err
+		}
+
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			continue
+		}
+
+		if principal == nil {
+			continue
+		}
+
+		allowed, err := h.evaluator.Evaluate(ctx, *principal, name, "", "read")
+		if err != nil {
+			return nil, err
+		}
+
+		if allowed {
+			readable[id] = struct{}{}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return readable, nil
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	if encErr := json.NewEncoder(w).Encode(map[string]string{"error": msg, "code": code}); encErr != nil {
+		_ = encErr // response header already written
+	}
+}

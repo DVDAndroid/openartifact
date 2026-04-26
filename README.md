@@ -1,0 +1,149 @@
+<!--
+SPDX-FileCopyrightText: The OpenArtifact Authors
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
+<p align="center"><img src="docs/logo.png" alt="OpenArtifact" width="160"></p>
+
+# OpenArtifact
+
+OpenArtifact is an enterprise-grade, free-as-in-freedom artifact repository
+manager. It is a single Go binary with an embedded Vue 3 web UI, backed by
+PostgreSQL, that hosts and proxies packages for many ecosystems, with RBAC,
+SSO, security scanning and pluggable blob storage.
+
+## Features
+
+- 16 package formats (table below), hosted, proxy and group repositories
+- RBAC with users, groups, permission targets, API tokens; SSO via OIDC and SAML
+- SBOM generation (CycloneDX/SPDX), vulnerability scanning (OSV, Trivy, Grype),
+  license compliance and secret detection
+- Optional AI-assisted artifact analysis and an MCP server (disabled by default)
+- Webhooks, cleanup policies, storage quotas, artifact properties, backups,
+  release bundles with promotion pipelines, audit log, multi-tenancy (organizations)
+- Blob storage: filesystem, S3, GCS, Azure, Garage, SeaweedFS, OCI registry
+- GPG signing for APT and RPM metadata
+- REST API with OpenAPI spec and Swagger UI; Prometheus metrics; `oa` CLI
+
+## Supported formats
+
+Repositories are served under `/repos/<repo-name>/...`, except where noted.
+Replace `HOST` with your server (e.g. `http://localhost:8080`) and `REPO`
+with the repository name.
+
+| Format | Client URL |
+|---|---|
+| Maven | `HOST/repos/maven/REPO` |
+| sbt | `HOST/repos/sbt/REPO` |
+| Ivy | `HOST/repos/ivy/REPO` |
+| Raw | `HOST/repos/raw/REPO/<path>` |
+| npm | `HOST/repos/REPO/` |
+| PyPI | `HOST/repos/REPO/simple/` (upload: `HOST/repos/REPO/legacy/`) |
+| Docker / OCI | `HOST/v2/` registry API; the image name is the repository name |
+| Helm | `HOST/repos/REPO/` (`index.yaml`, `charts/`) |
+| Debian (APT) | `HOST/repos/REPO/` (`dists/`, `pool/`, `public.key`) |
+| RPM (YUM/DNF) | `HOST/repos/REPO/` (`repodata/repomd.xml`, `Packages/`, `public.key`) |
+| Go modules | `GOPROXY=HOST/repos/REPO` |
+| Cargo | `HOST/repos/REPO/` (sparse index, `config.json`) |
+| NuGet | `HOST/repos/REPO/v3/index.json` |
+| RubyGems | `HOST/repos/REPO/` |
+| Conda | `HOST/repos/REPO/<platform>/repodata.json` |
+| Conan (v2) | `HOST/repos/REPO/` (`v2/conans/...`) |
+
+Authentication is required unless `allowAnonymousRead` is enabled or the
+repository is public.
+
+## Quickstart (Docker Compose)
+
+```sh
+cp docker/.env.example docker/.env      # set POSTGRES_PASSWORD
+docker compose -f docker/docker-compose.yml --env-file docker/.env up --build
+```
+
+The UI and API are on <http://localhost:8080>. PostgreSQL is not published to
+the host by default.
+
+### First login
+
+On first start, with an empty user table, OpenArtifact creates an `admin`
+user with a random password that is printed once in the server log, and
+requires it to be changed at first login. To reset the admin password later
+(database settings are read from `DB_*` env vars):
+
+```sh
+go run ./cmd/resetpw '<new-password>'
+```
+
+## Build from source
+
+Requires Go 1.27 and [bun](https://bun.sh) 1.4.3.
+
+```sh
+make build        # web UI + bin/openartifact
+make build-cli    # bin/oa
+make run
+```
+
+The version is read from the `VERSION` file and injected via `-ldflags`.
+Run `make help` for all targets.
+
+## Configuration
+
+Configuration is loaded from defaults, then an optional YAML file
+(`-config path` or `OPENARTIFACT_CONFIG`), then environment variables, which
+take precedence. See [`openartifact.example.yaml`](openartifact.example.yaml)
+and [`.env.example`](.env.example) for every option.
+
+```sh
+openartifact verify openartifact.yaml    # validate a config file
+openartifact -config openartifact.yaml
+openartifact -migrate                    # run migrations and exit
+```
+
+Commonly used variables: `BASE_URL`, `SERVER_HOST`, `SERVER_PORT`,
+`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`,
+`STORAGE_BACKEND` (`filesystem`, `s3`, `gcs`, `azure`, `garage`, `seaweedfs`,
+`oci`), `STORAGE_PATH`, `LOG_LEVEL`, `ALLOW_ANONYMOUS_READ`,
+`METRICS_AUTH_TOKEN`, `MIGRATE_ON_START`. Migrations are applied automatically
+at startup unless `MIGRATE_ON_START=false`.
+
+## CLI
+
+```sh
+oa auth login --server http://localhost:8080
+oa auth whoami
+oa --format json <command>
+oa version
+```
+
+Run `oa` without arguments for the full command list. Server and token can
+also be set with `OA_SERVER` and `OA_TOKEN`.
+
+## API and operations
+
+- REST API under `/api/v1`; OpenAPI spec at `/api/v1/openapi.json`; Swagger UI at `/swagger/`
+- `GET /health`, `GET /ready`
+- `GET /metrics` (Prometheus); set `METRICS_AUTH_TOKEN` to require a token
+
+## Development
+
+```sh
+make test              # unit tests (race detector)
+make test-integration  # integration tests (testcontainers; needs a container runtime)
+make lint              # golangci-lint v2
+make generate          # sqlc v1.31.1 (DB code generation)
+cd web && bun install && bun run dev
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Contributing
+
+Issues and pull requests are welcome at
+<https://github.com/openartifact/openartifact>. Report security issues
+privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).

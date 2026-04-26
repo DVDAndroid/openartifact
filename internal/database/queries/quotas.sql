@@ -1,0 +1,23 @@
+-- name: InsertStorageQuotaIfNotExists :exec
+INSERT INTO storage_quotas (repository_id, max_size_bytes, max_artifact_count, warn_threshold_percent, current_size_bytes, current_artifact_count)
+VALUES ($1, 0, 0, 80, 0, 0)
+ON CONFLICT (repository_id) DO NOTHING;
+
+-- name: GetStorageQuota :one
+SELECT id, repository_id, max_size_bytes, max_artifact_count, warn_threshold_percent, current_size_bytes, current_artifact_count, created_at, updated_at
+FROM storage_quotas WHERE repository_id = $1;
+
+-- name: UpdateStorageQuota :exec
+UPDATE storage_quotas
+SET max_size_bytes = $1, max_artifact_count = $2, warn_threshold_percent = $3, updated_at = $4
+WHERE repository_id = $5;
+
+-- name: IncrementStorageUsage :exec
+UPDATE storage_quotas
+SET current_size_bytes = current_size_bytes + $1, current_artifact_count = current_artifact_count + $2, updated_at = $3
+WHERE repository_id = $4;
+
+-- name: DecrementStorageUsage :exec
+UPDATE storage_quotas
+SET current_size_bytes = GREATEST(0, current_size_bytes - $1), current_artifact_count = GREATEST(0, current_artifact_count - $2), updated_at = $3
+WHERE repository_id = $4;

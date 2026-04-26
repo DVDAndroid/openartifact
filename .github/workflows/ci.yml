@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27"
+  SQLC_VERSION: "v1.31.1"
+  GOLANGCI_LINT_VERSION: "v2.15.0"
+
+jobs:
+  go:
+    name: build / vet / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race, unit packages)
+        run: go test -race -timeout 120s ./...
+
+  integration:
+    name: integration (testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go test (integration tag)
+        run: go test -tags integration -count=1 ./tests/...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --config=.golangci.yaml
+
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: fsfe/reuse-action@v6
+
+  sqlc:
+    name: sqlc generate (verify no drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@${{ env.SQLC_VERSION }}
+
+      - name: Run sqlc generate
+        run: sqlc generate
+
+      - name: Fail if generated code is out of date
+        run: |
+          if ! git diff --quiet -- internal/database/dbsqlc; then
+            echo "::error::sqlc generate produced a diff — run 'sqlc generate' locally and commit internal/database/dbsqlc/"
+            git diff --stat -- internal/database/dbsqlc
+            exit 1
+          fi
+
+  web:
+    name: web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3"
+
+      - run: bun install
+      - run: bun run typecheck
+
+      - run: bun test
+
+      - run: bun run build
+      - run: bun run web/scripts/check-bundle-size.js
+        working-directory: .
+

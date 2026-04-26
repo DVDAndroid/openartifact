@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Node modules — installed during build
+web/node_modules
+web/dist
+
+# Git
+.git
+
+# Test coverage
+web/coverage
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+openartifact

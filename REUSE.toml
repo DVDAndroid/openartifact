@@ -1,0 +1,27 @@
+version = 1
+SPDX-PackageName = "OpenArtifact"
+SPDX-PackageSupplier = "The OpenArtifact Authors"
+SPDX-PackageDownloadLocation = "https://github.com/openartifact/openartifact"
+
+# sqlc query sources (header would leak into generated docs), generated code (sqlc, hey-api), lockfiles, binary assets and data files
+# that cannot carry comment headers.
+[[annotations]]
+path = [
+  "internal/database/dbsqlc/**",
+  "internal/database/queries/**",
+  "web/src/api/generated/**",
+  "internal/api/openapi.json",
+  "go.sum",
+  "web/bun.lock",
+  "web/package.json",
+  "web/tsconfig.json",
+  "web/tsconfig.node.json",
+  "web/dist/**",
+  "docs/**.png",
+  "web/public/**",
+  "web/src/**/__snapshots__/**",
+  "VERSION",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The OpenArtifact Authors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"

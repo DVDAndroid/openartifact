@@ -1,0 +1,67 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { request } from './client'
+
+export interface AIAnalysis {
+  id: string
+  repository_id: string
+  artifact_id: string
+  artifact_format: string
+  artifact_name: string
+  artifact_version: string
+  summary: string
+  tags: string[]
+  license_status: 'SAFE' | 'REVIEW_REQUIRED' | 'UNKNOWN'
+  license_name: string
+  security_notes: string
+  quarantine_recommended: boolean
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  error_message: string
+  model_used: string
+  prompt_tokens: number
+  completion_tokens: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ListAIAnalysesResult {
+  analyses: AIAnalysis[]
+  total: number
+}
+
+export function listAIAnalyses(
+  repoName: string,
+  params?: { status?: string; limit?: number; offset?: number },
+): Promise<ListAIAnalysesResult> {
+  const qs = new URLSearchParams()
+  if (params?.status) qs.set('status', params.status)
+  if (params?.limit != null) qs.set('limit', String(params.limit))
+  if (params?.offset != null) qs.set('offset', String(params.offset))
+  const query = qs.toString() ? `?${qs}` : ''
+  return request<ListAIAnalysesResult>(
+    `/api/v1/repositories/${encodeURIComponent(repoName)}/ai-analysis${query}`,
+  )
+}
+
+export function getAIAnalysis(repoName: string, artifactID: string): Promise<AIAnalysis> {
+  return request<AIAnalysis>(
+    `/api/v1/repositories/${encodeURIComponent(repoName)}/ai-analysis/${encodeURIComponent(artifactID)}`,
+  )
+}
+
+export function triggerAIAnalysis(
+  repoName: string,
+  artifactID: string,
+  manifestText?: string,
+): Promise<void> {
+  return request<void>(
+    `/api/v1/repositories/${encodeURIComponent(repoName)}/ai-analysis/${encodeURIComponent(artifactID)}/trigger`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest_text: manifestText ?? '' }),
+    },
+  )
+}

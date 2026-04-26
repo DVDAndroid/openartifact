@@ -1,0 +1,440 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package api
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/openartifact/openartifact/internal/api/responses"
+	"github.com/openartifact/openartifact/internal/auth"
+	"github.com/openartifact/openartifact/internal/database"
+	"github.com/openartifact/openartifact/internal/database/models"
+	"github.com/openartifact/openartifact/internal/sbom"
+	"github.com/openartifact/openartifact/internal/storage"
+	"github.com/openartifact/openartifact/internal/urlparams"
+	"github.com/openartifact/openartifact/pkg/logger"
+)
+
+type SBOMHandler struct {
+	db        database.Database
+	log       *logger.Logger
+	evaluator *auth.Evaluator
+	generator *sbom.Generator
+	blobStore storage.BlobStore
+}
+
+func NewSBOMHandler(db database.Database, log *logger.Logger, evaluator *auth.Evaluator, generator *sbom.Generator, blobStore storage.BlobStore) *SBOMHandler {
+	return &SBOMHandler{
+		db:        db,
+		log:       log,
+		evaluator: evaluator,
+		generator: generator,
+		blobStore: blobStore,
+	}
+}
+
+func (h *SBOMHandler) RegisterAuthed(r chi.Router) {
+	r.Post("/api/v1/repositories/{name}/sbom/generate", h.handleGenerate)
+	r.Get("/api/v1/repositories/{name}/sbom", h.handleList)
+	r.Get("/api/v1/repositories/{name}/sbom/{id}", h.handleGet)
+	r.Get("/api/v1/repositories/{name}/sbom/{id}/download", h.handleDownload)
+	r.Delete("/api/v1/repositories/{name}/sbom/{id}", h.handleDelete)
+}
+
+// validateSBOMRequest returns a validation message for an invalid SBOM
+// generation request, or "" when the request is valid.
+func validateSBOMRequest(artifactID, format, specVersion string) string {
+	switch {
+	case artifactID == "":
+		return "artifact_id is required"
+	case format == "":
+		return "format is required"
+	case specVersion == "":
+		return "spec_version is required"
+	case format != "cyclonedx" && format != "spdx":
+		return "format must be 'cyclonedx' or 'spdx'"
+	case format == "cyclonedx" && specVersion != "1.4":
+		return "CycloneDX spec_version must be '1.4'"
+	case format == "spdx" && specVersion != "2.3":
+		return "SPDX spec_version must be '2.3'"
+	}
+
+	return ""
+}
+
+func (h *SBOMHandler) handleGenerate(w http.ResponseWriter, r *http.Request) {
+	name := urlparams.Vars(r)["name"]
+	ctx := r.Context()
+
+	repo, err := h.db.GetRepositoryByName(ctx, name)
+	if err != nil {
+		h.log.Errorw("generate SBOM: db error getting repo", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	if repo == nil {
+		writeError(w, http.StatusNotFound, "not_found", "repository not found")
+		return
+	}
+
+	p := currentPrincipal(r)
+
+	isAdmin, err := principalIsAdmin(ctx, p, h.evaluator)
+	if err != nil || !isAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+		return
+	}
+
+	var body struct {
+		ArtifactID  string         `json:"artifact_id"`
+		Format      string         `json:"format"`
+		SpecVersion string         `json:"spec_version"`
+		Metadata    map[string]any `json:"metadata"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	if msg := validateSBOMRequest(body.ArtifactID, body.Format, body.SpecVersion); msg != "" {
+		writeError(w, http.StatusBadRequest, "validation_failed", msg)
+		return
+	}
+
+	// Generate SBOM
+	var (
+		result *sbom.SBOMResult
+		genErr error
+	)
+
+	if body.Format == "cyclonedx" {
+		result, genErr = h.generator.GenerateCycloneDX(ctx, repo.ID, body.ArtifactID, repo.Format, body.Metadata)
+	} else {
+		result, genErr = h.generator.GenerateSPDX(ctx, repo.ID, body.ArtifactID, repo.Format, body.Metadata)
+	}
+
+	if genErr != nil {
+		h.log.Errorw("generate SBOM: generation error", "error", genErr)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate SBOM")
+
+		return
+	}
+
+	// Serialize the generated SBOM to the exact bytes handleDownload will
+	// later serve, and store them in the blob store content-addressed by
+	// sha256 — sbom_results only carries a blob_id pointer (see
+	// CreateSBOMReport), it has no inline sbom_data/sbom_text column.
+	var data []byte
+	if result.Data != nil {
+		data, err = json.Marshal(result.Data)
+		if err != nil {
+			h.log.Errorw("generate SBOM: failed to marshal SBOM data", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to marshal SBOM")
+
+			return
+		}
+	} else {
+		data = []byte(result.Text)
+	}
+
+	sum := sha256.Sum256(data)
+	sha256Hex := hex.EncodeToString(sum[:])
+
+	if _, err := h.blobStore.Put(ctx, bytes.NewReader(data), map[string]string{
+		"sha256":       sha256Hex,
+		"content-type": result.ContentType,
+		"format":       "sbom",
+	}); err != nil {
+		h.log.Errorw("generate SBOM: failed to store blob", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to store SBOM content")
+
+		return
+	}
+
+	// Create SBOM report
+	report := &models.SBOMReport{
+		RepositoryID:   repo.ID,
+		ArtifactID:     body.ArtifactID,
+		Format:         result.Format,
+		SpecVersion:    result.SpecVersion,
+		ContentType:    result.ContentType,
+		SBOMData:       result.Data,
+		SBOMText:       result.Text,
+		BlobSHA256:     sha256Hex,
+		BlobSizeBytes:  int64(len(data)),
+		ComponentCount: result.Components,
+		GeneratedAt:    time.Now(),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	if err := h.db.CreateSBOMReport(ctx, report); err != nil {
+		h.log.Errorw("generate SBOM: db error creating report", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, reportToMap(report))
+}
+
+//nolint:dupl // handler boilerplate: identical structure, different entities
+func (h *SBOMHandler) handleList(w http.ResponseWriter, r *http.Request) {
+	name := urlparams.Vars(r)["name"]
+	ctx := r.Context()
+
+	repo, err := h.db.GetRepositoryByName(ctx, name)
+	if err != nil {
+		h.log.Errorw("list SBOMs: db error getting repo", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	if repo == nil {
+		writeError(w, http.StatusNotFound, "not_found", "repository not found")
+		return
+	}
+
+	p := currentPrincipal(r)
+
+	isAdmin, err := principalIsAdmin(ctx, p, h.evaluator)
+	if err != nil || !isAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+		return
+	}
+
+	reports, err := h.db.ListSBOMReports(ctx, repo.ID)
+	if err != nil {
+		h.log.Errorw("list SBOMs: db error", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	if reports == nil {
+		reports = []*models.SBOMReport{}
+	}
+
+	var result []responses.SBOMReportResponse
+	for _, report := range reports {
+		result = append(result, reportToMap(report))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"reports": result,
+	})
+}
+
+func (h *SBOMHandler) handleGet(w http.ResponseWriter, r *http.Request) {
+	name := urlparams.Vars(r)["name"]
+	id := urlparams.Vars(r)["id"]
+	ctx := r.Context()
+
+	repo, err := h.db.GetRepositoryByName(ctx, name)
+	if err != nil {
+		h.log.Errorw("get SBOM: db error getting repo", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	if repo == nil {
+		writeError(w, http.StatusNotFound, "not_found", "repository not found")
+		return
+	}
+
+	p := currentPrincipal(r)
+
+	isAdmin, err := principalIsAdmin(ctx, p, h.evaluator)
+	if err != nil || !isAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+		return
+	}
+
+	// Get all reports for the repo and find the one with matching ID
+	reports, err := h.db.ListSBOMReports(ctx, repo.ID)
+	if err != nil {
+		h.log.Errorw("get SBOM: db error", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	var report *models.SBOMReport
+
+	for _, r := range reports {
+		if r.ID == id {
+			report = r
+			break
+		}
+	}
+
+	if report == nil {
+		writeError(w, http.StatusNotFound, "not_found", "SBOM report not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, reportToMap(report))
+}
+
+func (h *SBOMHandler) handleDownload(w http.ResponseWriter, r *http.Request) {
+	name := urlparams.Vars(r)["name"]
+	id := urlparams.Vars(r)["id"]
+	ctx := r.Context()
+
+	repo, err := h.db.GetRepositoryByName(ctx, name)
+	if err != nil {
+		h.log.Errorw("download SBOM: db error getting repo", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	if repo == nil {
+		writeError(w, http.StatusNotFound, "not_found", "repository not found")
+		return
+	}
+
+	p := currentPrincipal(r)
+
+	isAdmin, err := principalIsAdmin(ctx, p, h.evaluator)
+	if err != nil || !isAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+		return
+	}
+
+	// Get all reports for the repo and find the one with matching ID
+	reports, err := h.db.ListSBOMReports(ctx, repo.ID)
+	if err != nil {
+		h.log.Errorw("download SBOM: db error", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	var report *models.SBOMReport
+
+	for _, r := range reports {
+		if r.ID == id {
+			report = r
+			break
+		}
+	}
+
+	if report == nil {
+		writeError(w, http.StatusNotFound, "not_found", "SBOM report not found")
+		return
+	}
+
+	if report.BlobSHA256 == "" {
+		writeError(w, http.StatusInternalServerError, "internal_error", "SBOM content not available")
+		return
+	}
+
+	rc, err := h.blobStore.Get(ctx, report.BlobSHA256)
+	if err != nil {
+		h.log.Errorw("download SBOM: blob fetch failed", "sha256", report.BlobSHA256, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to read SBOM content")
+
+		return
+	}
+	defer func() { _ = rc.Close() }()
+
+	// The blob already holds the exact bytes generated at SBOM creation
+	// time (JSON for cyclonedx, plain text for spdx), so stream it as-is
+	// instead of re-decoding/re-encoding.
+	w.Header().Set("Content-Type", report.ContentType)
+	w.Header().Set("Content-Disposition", "attachment; filename=sbom."+report.Format)
+	w.WriteHeader(http.StatusOK)
+
+	if _, err := io.Copy(w, rc); err != nil {
+		h.log.Warnw("download SBOM: failed to stream content", "sha256", report.BlobSHA256, "error", err)
+	}
+}
+
+func (h *SBOMHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
+	name := urlparams.Vars(r)["name"]
+	id := urlparams.Vars(r)["id"]
+	ctx := r.Context()
+
+	repo, err := h.db.GetRepositoryByName(ctx, name)
+	if err != nil {
+		h.log.Errorw("delete SBOM: db error getting repo", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	if repo == nil {
+		writeError(w, http.StatusNotFound, "not_found", "repository not found")
+		return
+	}
+
+	p := currentPrincipal(r)
+
+	isAdmin, err := principalIsAdmin(ctx, p, h.evaluator)
+	if err != nil || !isAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+		return
+	}
+
+	// Verify the report belongs to this repo
+	reports, err := h.db.ListSBOMReports(ctx, repo.ID)
+	if err != nil {
+		h.log.Errorw("delete SBOM: db error", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	found := false
+
+	for _, r := range reports {
+		if r.ID == id {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		writeError(w, http.StatusNotFound, "not_found", "SBOM report not found")
+		return
+	}
+
+	if err := h.db.DeleteSBOMReport(ctx, id); err != nil {
+		h.log.Errorw("delete SBOM: db error", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
+
+		return
+	}
+
+	writeNoContent(w)
+}
+
+func reportToMap(report *models.SBOMReport) responses.SBOMReportResponse {
+	return responses.SBOMReportResponse{
+		ID:             report.ID,
+		RepositoryID:   report.RepositoryID,
+		ArtifactID:     report.ArtifactID,
+		Format:         report.Format,
+		SpecVersion:    report.SpecVersion,
+		ContentType:    report.ContentType,
+		ComponentCount: report.ComponentCount,
+		GeneratedAt:    formatTime(report.GeneratedAt),
+		CreatedAt:      formatTime(report.CreatedAt),
+		UpdatedAt:      formatTime(report.UpdatedAt),
+		SBOMData:       report.SBOMData,
+	}
+}

@@ -1,0 +1,355 @@
+// SPDX-FileCopyrightText: The OpenArtifact Authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package deb
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	db "github.com/openartifact/openartifact/internal/database"
+	"github.com/openartifact/openartifact/internal/storage"
+	"github.com/openartifact/openartifact/internal/urlparams"
+	"github.com/openartifact/openartifact/pkg/logger"
+)
+
+type HTTPHandler struct {
+	name      string
+	log       *logger.Logger
+	db        db.Database
+	blobStore storage.BlobStore
+}
+
+func NewHTTPHandler(log *logger.Logger, database db.Database, blobStore storage.BlobStore) *HTTPHandler {
+	return &HTTPHandler{
+		name:      "debian-repository",
+		log:       log,
+		db:        database,
+		blobStore: blobStore,
+	}
+}
+
+func (h *HTTPHandler) Name() string {
+	return h.name
+}
+
+// RegisterRepoRoutes registers Debian-specific routes on the provided sub-router.
+// It does NOT wrap in r.Route() — callers are responsible for the path prefix.
+func (h *HTTPHandler) RegisterRepoRoutes(r chi.Router) {
+	r.Get("/dists/{dist}/Release", h.handleRelease)
+	r.Get("/dists/{dist}/InRelease", h.handleInRelease)
+	r.Get("/dists/{dist}/Release.gpg", h.handleReleaseGPG)
+	r.Get("/dists/{dist}/{comp}/binary-{arch}/Packages", h.handlePackages)
+	r.Get("/dists/{dist}/{comp}/binary-{arch}/Packages.gz", h.handlePackagesGz)
+	r.Get("/dists/{dist}/{comp}/binary-{arch}/Packages.xz", h.handlePackagesXz)
+	r.Get("/pool/{comp}/{prefix}/{pkg}/{filename}", h.handlePoolFile)
+	r.Get("/public.key", h.handlePublicKey)
+}
+
+// RegisterRoutes registers the Debian handler under a chi router prefix.
+//
+// Deprecated: prefer using RegisterRepoRoutes inside a caller-managed r.Route().
+func (h *HTTPHandler) RegisterRoutes(r chi.Router, prefix string) {
+	r.Route(prefix, func(r chi.Router) {
+		h.RegisterRepoRoutes(r)
+	})
+	h.log.Infow("Debian repository HTTP handler registered", "prefix", prefix)
+}
+
+func (h *HTTPHandler) resolveRepoID(ctx context.Context, name string) (string, error) {
+	repo, err := h.db.GetRepositoryByName(ctx, name)
+	if err != nil {
+		return "", err
+	}
+
+	if repo == nil {
+		return "", fmt.Errorf("repository not found: %s", name) //nolint:err113 // dynamic error with runtime context
+	}
+
+	return repo.ID, nil
+}
+
+// tryServeRepoBlob attempts to serve a pre-generated metadata blob.
+// Returns true if served, false if the blob does not exist yet.
+func (h *HTTPHandler) tryServeRepoBlob(w http.ResponseWriter, r *http.Request, repoID string, path string, contentType string) bool {
+	meta, err := h.db.GetRepoMetadataByPath(r.Context(), repoID, path)
+	if err != nil {
+		h.log.Errorw("failed to query repo metadata", "path", path, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return true // error already written
+	}
+
+	if meta == nil {
+		return false // not found; caller should fall back to streaming
+	}
+
+	reader, err := h.blobStore.Get(r.Context(), meta.BlobSHA256)
+	if err != nil {
+		h.log.Errorw("failed to read blob", "sha256", meta.BlobSHA256, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return true
+	}
+	defer func() { _ = reader.Close() }()
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("ETag", `"`+meta.BlobSHA256+`"`)
+	w.Header().Set("Cache-Control", "public, max-age=300")
+
+	if _, err := io.Copy(w, reader); err != nil {
+		h.log.Errorw("failed to write response", "path", path, "error", err)
+	}
+
+	return true
+}
+
+func (h *HTTPHandler) handleRelease(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	dist := vars["dist"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	// Fast path: serve pre-generated blob.
+	path := GetReleasePath(dist)
+	if h.tryServeRepoBlob(w, r, repoID, path, "text/plain") {
+		return
+	}
+
+	// Streaming fallback: generate on-the-fly from DB.
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	if err := StreamRelease(r.Context(), h.db, repoID, dist, w); err != nil {
+		h.log.Errorw("failed to stream Release", "dist", dist, "error", err)
+	}
+}
+
+func (h *HTTPHandler) handleInRelease(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	dist := vars["dist"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	path := GetInReleasePath(dist)
+	if !h.tryServeRepoBlob(w, r, repoID, path, "text/plain") {
+		http.NotFound(w, r)
+	}
+}
+
+func (h *HTTPHandler) handleReleaseGPG(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	dist := vars["dist"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	path := GetReleaseGPGPath(dist)
+	if !h.tryServeRepoBlob(w, r, repoID, path, "application/pgp-signature") {
+		http.NotFound(w, r)
+	}
+}
+
+func (h *HTTPHandler) handlePackages(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	dist := vars["dist"]
+	comp := vars["comp"]
+	arch := vars["arch"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	if h.tryServeRepoBlob(w, r, repoID, GetPackagesPath(dist, comp, arch), "text/plain") {
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	if _, err := StreamPackages(r.Context(), h.db, repoID, dist, comp, arch, CompressionNone, w); err != nil {
+		h.log.Errorw("failed to stream Packages", "dist", dist, "comp", comp, "arch", arch, "error", err)
+	}
+}
+
+func (h *HTTPHandler) handlePackagesGz(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	dist := vars["dist"]
+	comp := vars["comp"]
+	arch := vars["arch"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	if h.tryServeRepoBlob(w, r, repoID, GetPackagesGzPath(dist, comp, arch), "application/gzip") {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	if _, err := StreamPackages(r.Context(), h.db, repoID, dist, comp, arch, CompressionGzip, w); err != nil {
+		h.log.Errorw("failed to stream Packages.gz", "dist", dist, "comp", comp, "arch", arch, "error", err)
+	}
+}
+
+func (h *HTTPHandler) handlePackagesXz(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	dist := vars["dist"]
+	comp := vars["comp"]
+	arch := vars["arch"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	if h.tryServeRepoBlob(w, r, repoID, GetPackagesXzPath(dist, comp, arch), "application/x-xz") {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-xz")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	if _, err := StreamPackages(r.Context(), h.db, repoID, dist, comp, arch, CompressionXZ, w); err != nil {
+		h.log.Errorw("failed to stream Packages.xz", "dist", dist, "comp", comp, "arch", arch, "error", err)
+	}
+}
+
+func (h *HTTPHandler) handlePoolFile(w http.ResponseWriter, r *http.Request) {
+	vars := urlparams.Vars(r)
+	filename := vars["filename"]
+	name := vars["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	comp, err := h.db.GetComponentByFilename(r.Context(), repoID, filename)
+	if err != nil {
+		h.log.Errorw("failed to look up component by filename", "filename", filename, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
+	if comp == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// The blob is stored by SHA256 key (set via "sha256" metadata on Put)
+	reader, err := h.blobStore.Get(r.Context(), comp.SHA256)
+	if err != nil {
+		h.log.Errorw("failed to read blob", "sha256", comp.SHA256, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+	defer func() { _ = reader.Close() }()
+
+	w.Header().Set("Content-Type", "application/vnd.debian.binary-package")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+
+	if _, err := io.Copy(w, reader); err != nil {
+		h.log.Errorw("failed to write pool file response", "filename", filename, "error", err)
+	}
+}
+
+func (h *HTTPHandler) handlePublicKey(w http.ResponseWriter, r *http.Request) {
+	name := urlparams.Vars(r)["name"]
+
+	repoID, err := h.resolveRepoID(r.Context(), name)
+	if err != nil {
+		h.log.Warnw("failed to resolve repository", "name", name, "error", err)
+		http.NotFound(w, r)
+
+		return
+	}
+
+	path := "public.key"
+	if !h.tryServeRepoBlob(w, r, repoID, path, "application/pgp-keys") {
+		http.NotFound(w, r)
+	}
+}
+
+func GetPoolPath(component, packageName, version, filename string) string {
+	if packageName == "" {
+		return ""
+	}
+
+	prefix := string(packageName[0])
+	if strings.HasPrefix(packageName, "lib") && len(packageName) > 3 {
+		prefix = "lib" + string(packageName[3])
+	}
+
+	return "pool/" + component + "/" + prefix + "/" + packageName + "/" + filename
+}
+
+func GetPackagesPath(distribution, component, architecture string) string {
+	return "dists/" + distribution + "/" + component + "/binary-" + architecture + "/Packages"
+}
+
+func GetPackagesGzPath(distribution, component, architecture string) string {
+	return "dists/" + distribution + "/" + component + "/binary-" + architecture + "/Packages.gz"
+}
+
+func GetPackagesXzPath(distribution, component, architecture string) string {
+	return "dists/" + distribution + "/" + component + "/binary-" + architecture + "/Packages.xz"
+}
+
+func GetReleasePath(distribution string) string {
+	return "dists/" + distribution + "/Release"
+}
+
+func GetInReleasePath(distribution string) string {
+	return "dists/" + distribution + "/InRelease"
+}
+
+func GetReleaseGPGPath(distribution string) string {
+	return "dists/" + distribution + "/Release.gpg"
+}

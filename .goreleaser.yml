@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: The OpenArtifact Authors
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    # The server embeds web/dist; build the UI before compiling.
+    - sh -c "cd web && bun install --frozen-lockfile && bun run build"
+
+builds:
+  - id: openartifact
+    main: ./cmd/server
+    binary: openartifact
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.buildTime={{.CommitDate}}
+    goos: [linux]
+    goarch: [amd64, arm64]
+  - id: resetpw
+    main: ./cmd/resetpw
+    binary: resetpw
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [linux]
+    goarch: [amd64, arm64]
+  - id: oa
+    main: ./cmd/oa
+    binary: oa
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: openartifact
+    ids: [openartifact, resetpw]
+    formats: [tar.gz]
+    name_template: "openartifact_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - openartifact.example.yaml
+      - .env.example
+  - id: oa
+    ids: [oa]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "oa_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE]
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+release:
+  github:
+    owner: openartifact
+    name: openartifact
+  name_template: "OpenArtifact {{ .Version }}"
+  footer: |
+    Container image (linux/amd64, linux/arm64):
+
+    ```sh
+    docker pull ghcr.io/openartifact/openartifact:{{ .Version }}
+    ```
+
+changelog:
+  use: github
+  sort: asc
+  abbrev: -1
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]/.-]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]/.-]+\))??!?:.+$'
+      order: 1
+    - title: CI and build
+      regexp: '^.*?(ci|build)(\([[:word:]/.-]+\))??!?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^Merge '
+      - '^chore\(release\):'

@@ -19,7 +19,7 @@ COPY web/ ./
 # Vite build catches broken imports; run `vue-tsc --noEmit` locally or in CI.
 RUN bunx vite build
 # ---- Backend build stage ----------------------------------------------------
-FROM docker.io/golang:1.27-alpine AS builder
+FROM docker.io/golang:1.27.3-alpine AS builder
 
 WORKDIR /app
 

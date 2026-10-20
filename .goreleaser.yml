@@ -51,7 +51,8 @@ archives:
       - LICENSE
       - README.md
       - openartifact.example.yaml
-      - .env.example
+      - src: .env.example
+        dst: .env.example
   - id: oa
     ids: [oa]
     formats: [tar.gz]
@@ -80,7 +81,7 @@ release:
 changelog:
   use: github
   sort: asc
-  abbrev: -1
+  abbrev: 0
   groups:
     - title: Features
       regexp: '^.*?feat(\([[:word:]/.-]+\))??!?:.+$'

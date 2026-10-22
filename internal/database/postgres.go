@@ -1762,6 +1762,10 @@ var blobRefSpecs = []struct{ table, cond string }{ //nolint:gochecknoglobals // 
 	{"release_bundle_items", "sha256 = b.sha256"},
 	{"proxy_cache_entries", "blob_key = b.sha256"},
 	{"sbom_results", "blob_id = b.id"},
+	{"android_versions", "blob_id = b.id"},
+	{"android_files", "blob_id = b.id"},
+	{"android_icons", "blob_id = b.id"},
+	{"android_apps", "icon_override_blob_id = b.id"},
 }
 
 // blobRefSumExpr is the SQL sum of every reference to blob alias b.

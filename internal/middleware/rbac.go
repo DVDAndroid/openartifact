@@ -556,7 +556,7 @@ func classifyRoute(r *http.Request) routeScope {
 // package belongs to {name}, so they are authorized against that repository
 // with a data action instead of the global "manage" permission.
 func repoDataSegments() []string {
-	return []string{"debs", "packages", "comps", "uploads"}
+	return []string{"debs", "packages", "comps", "uploads", "apks"}
 }
 
 func classifyAPIRoute(method, escapedPath string) routeScope {

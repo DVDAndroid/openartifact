@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openartifact/openartifact/internal/ai"
+	"github.com/openartifact/openartifact/internal/android"
 	"github.com/openartifact/openartifact/internal/api"
 	"github.com/openartifact/openartifact/internal/audit"
 	"github.com/openartifact/openartifact/internal/auth"
@@ -687,6 +688,8 @@ func run(args []string) error {
 	ivyHTTP := formativy.NewHTTPHandler(log, db, servedStore, cfg.BaseURL)
 	sbtHTTP := formatsbt.NewHTTPHandler(log, db, servedStore, cfg.BaseURL)
 	mavenHTTP := formatmaven.NewHTTPHandler(log, db, servedStore)
+	androidHTTP := android.NewHandler(log, db, db, servedStore, blobStore, cfg.BaseURL, reg)
+	androidHTTP.Register(authedAPI)
 
 	// All repo-scoped format handlers, including the npm publish/unpublish
 	// catch-all, share the /repos/{name} subrouter. A sibling /repos/{x}/*
@@ -748,6 +751,7 @@ func run(args []string) error {
 		condaHTTP.RegisterRepoRoutes(r)
 		conanHTTP.RegisterRepoRoutes(r)
 		gomodHTTP.RegisterRepoRoutes(r)
+		androidHTTP.RegisterRepoRoutes(r)
 		npmUpload.RegisterRepoRoutes(r)
 		// npm publish and GOPROXY upload both need PUT "/*"; dispatch by tail.
 		r.Put("/*", func(w http.ResponseWriter, req *http.Request) {
@@ -844,7 +848,7 @@ func run(args []string) error {
 	for _, h := range []interface{ SetPublisher(webhook.Publisher) }{
 		rpmUpload, debUpload, presignedUploads, npmUpload, mavenUpload,
 		helmHTTP, pypiHTTP, nugetHTTP, npmHTTP, cargoHTTP, rubygemsHTTP, rawHTTP,
-		condaHTTP, conanHTTP, ivyHTTP, sbtHTTP, mavenHTTP, dockerHTTP, gomodHTTP,
+		condaHTTP, conanHTTP, ivyHTTP, sbtHTTP, mavenHTTP, dockerHTTP, gomodHTTP, androidHTTP,
 	} {
 		h.SetPublisher(uploadPublisher)
 	}

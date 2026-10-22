@@ -15,6 +15,7 @@ import (
 	"github.com/openartifact/openartifact/internal/database"
 	"github.com/openartifact/openartifact/internal/database/models"
 	"github.com/openartifact/openartifact/internal/ocimanifest"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/pkg/logger"
 )
@@ -391,6 +392,15 @@ func (r *dockerGCRun) deleteManifests(ctx context.Context, doomed []*models.Dock
 			return fmt.Errorf("docker gc: %w", err)
 		}
 
+		// Only the rows this transaction removed give quota back: each was
+		// metered as its body's bytes and one artifact.
+		var freed int64
+		for _, m := range deleted {
+			freed += m.Size
+		}
+
+		r.releaseQuota(ctx, freed, len(deleted))
+
 		for _, m := range deleted {
 			r.addManifest(m)
 			r.releaseBlob(ctx, m.BlobSHA256, m.Size)
@@ -398,6 +408,17 @@ func (r *dockerGCRun) deleteManifests(ctx context.Context, doomed []*models.Dock
 	}
 
 	return nil
+}
+
+// releaseQuota returns the usage of rows registry GC just deleted from the
+// repository: size bytes and count artifacts (0 for layer blob records, which
+// are bytes only).
+func (r *dockerGCRun) releaseQuota(ctx context.Context, size int64, count int) {
+	if err := quota.ReleaseN(ctx, r.w.db, r.repo.ID, size, count); err != nil {
+		r.report.Failures++
+
+		r.w.log.Warnw("docker gc: release quota failed", "repository", r.repo.Name, "error", err)
+	}
 }
 
 func (r *dockerGCRun) sweepBlobs(ctx context.Context) error {
@@ -428,6 +449,13 @@ func (r *dockerGCRun) sweepBlobs(ctx context.Context) error {
 		if len(deleted) == 0 {
 			return nil // candidates became referenced meanwhile; the next run retries
 		}
+
+		var freed int64
+		for _, b := range deleted {
+			freed += b.Size
+		}
+
+		r.releaseQuota(ctx, freed, 0)
 
 		for _, b := range deleted {
 			r.addBlob(b)

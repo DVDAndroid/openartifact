@@ -23,6 +23,7 @@ import (
 
 type rawDB struct {
 	*formattest.DB
+	quotaFake
 
 	art *models.RawArtifact
 }

@@ -367,7 +367,7 @@ type formatTable struct {
 	blobCols []string
 	// quotaTracked marks formats whose uploads reserve storage quota (one
 	// artifact per row, the row's blob size). Deleting such a row must give that
-	// usage back; the other formats are not metered, so there is nothing to give.
+	// usage back. Every hosted format is metered.
 	quotaTracked bool
 	// kind is the trash kind of the table's rows, for the soft-delete path.
 	kind models.TrashKind
@@ -386,11 +386,11 @@ func cleanupFormatTable(format string) (formatTable, bool) {
 	case "helm":
 		return formatTable{"helm_charts", "name", []string{"name"}, "version", []string{"blob_id"}, true, models.TrashKindHelm}, true
 	case "pypi":
-		return formatTable{"pypi_packages", "name", []string{"name"}, "version", []string{"blob_id"}, false, models.TrashKindPyPI}, true
+		return formatTable{"pypi_packages", "name", []string{"name"}, "version", []string{"blob_id"}, true, models.TrashKindPyPI}, true
 	case "nuget":
-		return formatTable{"nuget_packages", "package_id", []string{"package_id"}, "version", []string{"blob_id"}, false, models.TrashKindNuGet}, true
+		return formatTable{"nuget_packages", "package_id", []string{"package_id"}, "version", []string{"blob_id"}, true, models.TrashKindNuGet}, true
 	case "go": // the format id is "go"; the table is gomod_modules (chk_repo_format)
-		return formatTable{"gomod_modules", "module_path", []string{"module_path"}, "version", []string{"zip_blob_id", "mod_blob_id"}, false, models.TrashKindGoMod}, true
+		return formatTable{"gomod_modules", "module_path", []string{"module_path"}, "version", []string{"zip_blob_id", "mod_blob_id"}, true, models.TrashKindGoMod}, true
 	default:
 		return formatTable{}, false
 	}

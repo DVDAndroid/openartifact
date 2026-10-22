@@ -86,7 +86,7 @@ The body is the standard Cargo publish payload: u32-LE metadata length, metadata
 - `name` starts with an ASCII letter or `_`, continues with ASCII letters, digits, `-` and `_`, and is at most 64 characters.
 - `vers` is a full SemVer 2.0 version (`MAJOR.MINOR.PATCH`, optional `-pre-release` and `+build`), at most 100 characters.
 
-A version is published once: a second publish of an existing `name`/`vers` (build metadata ignored, so `1.0.0+a` equals `1.0.0`) answers `409` with the same JSON error shape. This is decided from the metadata alone, before the crate part is read. Two concurrent publishes of one version also end in `409` for the loser, never `500`.
+A version is published once: a second publish of an existing `name`/`vers` (build metadata ignored, so `1.0.0+a` equals `1.0.0`) answers `409` with the same JSON error shape. This is decided from the metadata alone, before the crate part is read. Two concurrent publishes of one version also end in `409` for the loser, never `500`. The [storage quota](../repositories/cleanup-and-quotas.md#what-counts) is enforced on publish (`507` over quota); a yanked crate keeps counting.
 
 The declared lengths are capped at 1 MiB for the metadata and 128 MiB for the crate (`413` above). The server does not allocate the declared length up front: buffers grow as bytes arrive, and a body shorter than declared is a `400`.
 

@@ -25,6 +25,10 @@ type DockerBlob struct {
 	// repository ("" is the default image); nil records the repository only.
 	Image     *string   `db:"-"`
 	CreatedAt time.Time `db:"created_at"`
+	// Inserted is set by CreateDockerBlob: true when the call created the
+	// repository's row, false when the repository already held the blob. Callers
+	// that meter storage quota reserve only for a row they inserted.
+	Inserted bool `db:"-"`
 }
 
 // DockerUpload tracks an in-progress chunked blob upload.
@@ -62,6 +66,10 @@ type DockerManifest struct {
 	RequiredBlobs []string  `db:"-"`
 	CreatedAt     time.Time `db:"created_at"`
 	UpdatedAt     time.Time `db:"updated_at"`
+	// Inserted is set by CreateDockerManifest: true when the call created the
+	// live row, false when it refreshed an existing one. Callers that meter
+	// storage quota reserve only for a row they inserted.
+	Inserted bool `db:"-"`
 }
 
 // DockerManifestRefs lists what a manifest body references: blob digests

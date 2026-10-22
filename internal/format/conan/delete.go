@@ -11,6 +11,7 @@ import (
 
 	"github.com/openartifact/openartifact/internal/database"
 	"github.com/openartifact/openartifact/internal/database/models"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/webhook"
@@ -124,12 +125,32 @@ func (h *HTTPHandler) deleteScope(w http.ResponseWriter, r *http.Request, s *sco
 // hardDelete removes the rows, then every blob no other row references. Blobs
 // are content-addressed and may be shared, so each goes through SafeDeleteBlob.
 func (h *HTTPHandler) hardDelete(r *http.Request, files []*models.ConanPackage) error {
+	if len(files) == 0 {
+		return nil
+	}
+
 	shas := make(map[string]struct{}, len(files))
+
+	// Every file row is one quota artifact of its blob's size; return what was
+	// actually deleted, even when a later row fails.
+	var (
+		freed int64
+		count int
+	)
+
+	defer func() {
+		if err := quota.ReleaseN(r.Context(), h.DB, files[0].RepositoryID, freed, count); err != nil {
+			h.Log.Warnw("failed to release quota", "repo", files[0].RepositoryID, "error", err)
+		}
+	}()
 
 	for _, f := range files {
 		if err := h.DB.DeleteConanPackage(r.Context(), f.ID); err != nil {
 			return fmt.Errorf("delete conan package: %w", err)
 		}
+
+		freed += f.SizeBytes
+		count++
 
 		if f.SHA256 != "" {
 			shas[f.SHA256] = struct{}{}

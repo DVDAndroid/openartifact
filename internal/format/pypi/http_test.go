@@ -23,11 +23,17 @@ import (
 
 type pypiDB struct {
 	*formattest.DB
+	quotaFake
 
-	pkgs []*models.PyPIPackage
+	pkgs      []*models.PyPIPackage
+	createErr error
 }
 
 func (d *pypiDB) CreatePyPIPackage(_ context.Context, p *models.PyPIPackage) error {
+	if d.createErr != nil {
+		return d.createErr
+	}
+
 	d.pkgs = append(d.pkgs, p)
 	return nil
 }

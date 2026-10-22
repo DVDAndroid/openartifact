@@ -28,6 +28,7 @@ import (
 	"github.com/openartifact/openartifact/internal/licensepolicy"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/urlparams"
@@ -422,6 +423,20 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		SizeBytes:      int64(len(fileData)),
 	}
 
+	// Reserve quota before anything is persisted; every failure path below
+	// returns the reservation.
+	if err := quota.Enforce(r.Context(), h.DB, repoID, pkg.SizeBytes); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
+			return
+		}
+
+		h.Log.Errorw("failed to reserve quota", "repo", repoName, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	// Store the blob and insert the referencing row under the per-blob lock
 	// so a concurrent unpublish cannot delete the blob in between.
 	var (
@@ -462,6 +477,10 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request) {
 			h.Log.Errorw("blob lock failed", "error", lockErr)
 
 			status, msg = http.StatusInternalServerError, "failed to create package"
+		}
+
+		if err := quota.Release(r.Context(), h.DB, repoID, pkg.SizeBytes); err != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", err)
 		}
 
 		http.Error(w, msg, status)
@@ -534,6 +553,10 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	err = trash.Delete(r.Context(), h.DB, trash.Request{RepoID: repoID, Kind: models.TrashKindPyPI, IDs: []string{pkg.ID}, Resource: pkg.Filename}, func() error {
 		if err := h.DB.DeletePyPIPackage(r.Context(), repoID, pkg.Name, pkg.Version, pkg.Filename); err != nil {
 			return fmt.Errorf("delete pypi package: %w", err)
+		}
+
+		if relErr := quota.Release(r.Context(), h.DB, repoID, pkg.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
 		}
 
 		// Blob is content-addressed and may be shared by other artifacts; only

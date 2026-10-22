@@ -42,6 +42,17 @@ type regFakeDB struct {
 	uploads   map[string]*models.DockerUpload
 	links     map[string]bool // repoID|image|digest, like docker_blob_images
 	resolved  []string        // repository names looked up, in order
+
+	// ledger meters the quota reservations (see quota_test.go).
+	ledger quotaLedger
+	// upsertBlobs makes CreateDockerBlob refresh an existing row like the real
+	// ON CONFLICT query instead of failing on a duplicate.
+	upsertBlobs bool
+	// createManifestErr fails CreateDockerManifest.
+	createManifestErr error
+	// insertedOverride, when set, is what CreateDockerManifest reports as
+	// Inserted instead of whether the row was new.
+	insertedOverride *bool
 }
 
 func newRegFakeDB(repoNames ...string) *regFakeDB {
@@ -73,15 +84,32 @@ func (d *regFakeDB) GetDockerBlob(_ context.Context, repoID, digest string) (*mo
 
 func (d *regFakeDB) CreateDockerBlob(_ context.Context, b *models.DockerBlob) error {
 	k := scoped(b.RepositoryID, b.Digest)
-	if _, dup := d.blobs[k]; dup {
+
+	_, dup := d.blobs[k]
+	if dup && !d.upsertBlobs {
 		return errDuplicateKey
 	}
 
-	d.blobs[k] = b
+	if !dup {
+		d.blobs[k] = b
+	}
+
+	b.Inserted = !dup
 
 	if b.Image != nil {
 		d.links[scoped(b.RepositoryID, scoped(*b.Image, b.Digest))] = true
 	}
+
+	return nil
+}
+
+func (d *regFakeDB) DeleteDockerBlob(_ context.Context, repoID, digest string) error {
+	k := scoped(repoID, digest)
+	if _, ok := d.blobs[k]; !ok {
+		return database.ErrDockerRowNotFound
+	}
+
+	delete(d.blobs, k)
 
 	return nil
 }
@@ -137,7 +165,19 @@ func (d *regFakeDB) EnsureBlob(_ context.Context, sha256, _ string, _ int64) (st
 }
 
 func (d *regFakeDB) CreateDockerManifest(_ context.Context, m *models.DockerManifest) error {
-	d.manifests[scoped(m.RepositoryID, scoped(m.Image, m.Digest))] = m
+	if d.createManifestErr != nil {
+		return d.createManifestErr
+	}
+
+	k := scoped(m.RepositoryID, scoped(m.Image, m.Digest))
+	_, existed := d.manifests[k]
+	d.manifests[k] = m
+
+	m.Inserted = !existed
+	if d.insertedOverride != nil {
+		m.Inserted = *d.insertedOverride
+	}
+
 	return nil
 }
 
@@ -146,7 +186,13 @@ func (d *regFakeDB) GetDockerManifest(_ context.Context, repoID, image, digest s
 }
 
 func (d *regFakeDB) DeleteDockerManifest(_ context.Context, repoID, image, digest string) error {
-	delete(d.manifests, scoped(repoID, scoped(image, digest)))
+	k := scoped(repoID, scoped(image, digest))
+	if _, ok := d.manifests[k]; !ok {
+		return database.ErrDockerRowNotFound
+	}
+
+	delete(d.manifests, k)
+
 	return nil
 }
 

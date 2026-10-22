@@ -24,6 +24,7 @@ import (
 	"github.com/openartifact/openartifact/internal/format/base"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/urlparams"
 	"github.com/openartifact/openartifact/internal/webhook"
@@ -506,6 +507,23 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		ZipHash: zipSHA,
 	}
 
+	// One module is one artifact: the zip and go.mod bytes are reserved
+	// together, matching the reconcile unit. Every failure path below returns
+	// the reservation.
+	usage := mod.ZipSizeBytes + int64(len(goModContent))
+
+	if err := quota.EnforceN(r.Context(), h.DB, repoID, usage, 1); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
+			return
+		}
+
+		h.Log.Errorw("failed to reserve quota", "repo", repoName, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	// Store both blobs and insert the referencing row under the per-blob locks
 	// so a concurrent unpublish cannot delete either blob in between. Locks
 	// are taken in a fixed (sorted) order to avoid deadlocks between uploads.
@@ -547,6 +565,10 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	lockErr := storage.WithBlobLocks(r.Context(), h.DB, []string{first, second}, store)
 	if lockErr != nil {
+		if err := quota.Release(r.Context(), h.DB, repoID, usage); err != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", err)
+		}
+
 		h.Log.Errorw("failed to store go module", "module", modulePath, "version", version, "error", lockErr)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 

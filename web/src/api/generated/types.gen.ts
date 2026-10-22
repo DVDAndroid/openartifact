@@ -5288,6 +5288,10 @@ export type PostApiV1RepositoriesByNameUploadsByIdCompleteErrors = {
      * The storage backend does not support presigned uploads
      */
     501: Error;
+    /**
+     * Code quota_exceeded: the repository's storage quota would be exceeded; nothing was recorded and the upload stays pending
+     */
+    507: Error;
 };
 
 export type PostApiV1RepositoriesByNameUploadsByIdCompleteError = PostApiV1RepositoriesByNameUploadsByIdCompleteErrors[keyof PostApiV1RepositoriesByNameUploadsByIdCompleteErrors];

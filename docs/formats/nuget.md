@@ -65,6 +65,7 @@ Version lists, registration pages and search results order versions by SemVer 2.
 - The `.nupkg` must be a zip with a `.nuspec` (max 4 MiB) carrying `id` and `version`; otherwise `400 invalid package`.
 - The package id is lower-cased and the version normalized (see [Versions](#versions)); a SHA-512 of the package is computed.
 - Pushing an id and version that already exist answers `409 package version already exists` and changes nothing: the stored package and its blob stay as they were. Delete the version first to publish it again (`dotnet nuget push --skip-duplicate` treats the `409` as a skip).
+- The [storage quota](../repositories/cleanup-and-quotas.md#what-counts) is enforced on push (`507` over quota) and released when the version is deleted for good.
 
 ## Metadata served
 

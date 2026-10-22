@@ -9389,7 +9389,7 @@
     "/api/v1/repositories/{name}/uploads/{id}/complete": {
       "post": {
         "summary": "Complete a presigned upload",
-        "description": "Verifies that the staged object has the declared size and sha256, moves it to its content-addressed key, records the artifact (overwriting an existing path, like a raw PUT) and deletes the staging object. Only the creator of the upload or an administrator may complete it. The server reads the object back (up to 5 GiB) in a detached 30 minute job that survives a client disconnect; the read and the move are conditional on the object version seen at verification, so an object re-uploaded in between is refused. The call is idempotent: the first success returns 201, a retry returns 200 with the same body, and a retry while a verification is running returns 409 upload_in_progress. On a size or sha256 mismatch, or when the object changed during verification, the staging object and the upload are discarded and nothing is recorded. Quota, license and secret scanning are not applied, as for a raw PUT.",
+        "description": "Verifies that the staged object has the declared size and sha256, moves it to its content-addressed key, records the artifact (overwriting an existing path, like a raw PUT) and deletes the staging object. Only the creator of the upload or an administrator may complete it. The server reads the object back (up to 5 GiB) in a detached 30 minute job that survives a client disconnect; the read and the move are conditional on the object version seen at verification, so an object re-uploaded in between is refused. The call is idempotent: the first success returns 201, a retry returns 200 with the same body, and a retry while a verification is running returns 409 upload_in_progress. On a size or sha256 mismatch, or when the object changed during verification, the staging object and the upload are discarded and nothing is recorded. The repository's storage quota is enforced (507 quota_exceeded: the upload stays pending, nothing is recorded, and completing again after freeing space works); license and secret scanning are not applied, as for a raw PUT.",
         "tags": [
           "Repositories",
           "Packages"
@@ -9484,6 +9484,16 @@
           },
           "422": {
             "description": "Size or sha256 does not match the declaration; the upload was discarded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Code quota_exceeded: the repository's storage quota would be exceeded; nothing was recorded and the upload stays pending",
             "content": {
               "application/json": {
                 "schema": {

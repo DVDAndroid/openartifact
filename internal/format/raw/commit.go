@@ -12,6 +12,7 @@ import (
 
 	"github.com/openartifact/openartifact/internal/database/models"
 	"github.com/openartifact/openartifact/internal/format/base"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/webhook"
@@ -35,7 +36,10 @@ type ifAbsentInserter interface {
 // upload completion, so both behave identically after the bytes are in place,
 // and both enforce immutable_releases: overwriting an existing path of such a
 // repository fails with trash.ErrImmutableRelease, before putBlob runs, unless
-// req carries an admin's ?force=true. req supplies the principal and the force
+// req carries an admin's ?force=true. Storage quota is reserved after those
+// checks and before putBlob runs: a reservation that does not fit fails with
+// quota.ErrExceeded, any later failure returns the reservation, and an
+// overwrite releases the replaced row's usage. req supplies the principal and the force
 // flag; its context is used for every operation, so a caller that must outlive
 // the HTTP request passes a request carrying a detached context.
 func Commit(req *http.Request, h *base.Handler, repoName string, a *models.RawArtifact, putBlob func(ctx context.Context) error) (*models.RawArtifact, error) {
@@ -61,6 +65,20 @@ func Commit(req *http.Request, h *base.Handler, repoName string, a *models.RawAr
 	inserter, atomic := h.DB.(ifAbsentInserter)
 	atomic = atomic && guardErr != nil
 
+	// Reserve quota before anything is persisted; re-committing the content a
+	// path already holds changes no usage. Every failure below returns the
+	// reservation. An overwrite gives the replaced row's usage back afterwards.
+	reserved := previous == nil || previous.SHA256 != a.SHA256
+	if reserved {
+		if err := quota.Enforce(ctx, h.DB, a.RepositoryID, a.SizeBytes); err != nil {
+			if errors.Is(err, quota.ErrExceeded) {
+				return nil, err
+			}
+
+			return nil, fmt.Errorf("reserve quota: %w", err)
+		}
+	}
+
 	if err := storage.WithBlobLock(ctx, h.DB, a.SHA256, func(ctx context.Context) error {
 		if err := putBlob(ctx); err != nil {
 			return err
@@ -85,7 +103,19 @@ func Commit(req *http.Request, h *base.Handler, repoName string, a *models.RawAr
 
 		return nil
 	}); err != nil {
+		if reserved {
+			if relErr := quota.Release(ctx, h.DB, a.RepositoryID, a.SizeBytes); relErr != nil {
+				h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
+			}
+		}
+
 		return nil, err
+	}
+
+	if reserved && previous != nil {
+		if relErr := quota.Release(ctx, h.DB, a.RepositoryID, previous.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
+		}
 	}
 
 	// An overwrite leaves the previous content unreferenced.

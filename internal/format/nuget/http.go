@@ -28,6 +28,7 @@ import (
 	"github.com/openartifact/openartifact/internal/licensepolicy"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/urlparams"
@@ -278,7 +279,25 @@ func (h *HTTPHandler) handlePushPackage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Reserve quota before anything is persisted; every failure path below
+	// returns the reservation.
+	if err := quota.Enforce(r.Context(), h.DB, repoID, pkg.PackageSize); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
+			return
+		}
+
+		h.Log.Errorw("failed to reserve quota", "repo", repoName, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	if err := h.storePackage(r.Context(), pkg, data); err != nil {
+		if relErr := quota.Release(r.Context(), h.DB, repoID, pkg.PackageSize); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
+		}
+
 		if errors.Is(err, database.ErrDuplicate) || database.IsUniqueViolation(err) {
 			http.Error(w, "package version already exists", http.StatusConflict)
 			return
@@ -375,6 +394,10 @@ func (h *HTTPHandler) handleDeletePackage(w http.ResponseWriter, r *http.Request
 	err = trash.Delete(r.Context(), h.DB, trash.Request{RepoID: repoID, Kind: models.TrashKindNuGet, IDs: []string{pkg.ID}, Resource: nupkgName(packageID, version)}, func() error {
 		if err := h.DB.DeleteNuGetPackage(r.Context(), repoID, packageID, version); err != nil {
 			return fmt.Errorf("delete nuget package: %w", err)
+		}
+
+		if relErr := quota.Release(r.Context(), h.DB, repoID, pkg.PackageSize); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
 		}
 
 		// The blob is content-addressed and may be shared; remove it only once no

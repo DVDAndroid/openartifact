@@ -55,6 +55,7 @@ The Maven layout is recognised when the path has more than four segments and its
 - Upload limit 500 MiB; `201` with `{id, sha256}`; `DELETE` returns `204`.
 - Publishing a file that exists is an overwrite: the same bytes are an idempotent `201`, different bytes replace the file and the old blob is removed once nothing references it. In a repository with [immutable releases](../operations/trash.md#immutable-releases) a different upload over a release, and a delete of a release, is `409` unless an admin passes `?force=true`; a `-SNAPSHOT` version stays mutable.
 - Files published by earlier releases under a multi-segment group were stored under mis-split coordinates (org `com`, module `example`, ...). They are still served by `GET` and `HEAD` and removed by `DELETE` at their old URL, but publishing the path again creates a new record under the correct coordinates, and that one is served from then on; the old record stays behind it until deleted.
+- The [storage quota](../repositories/cleanup-and-quotas.md#what-counts) is enforced on publish (`507` over quota); an overwrite releases the replaced file and a delete releases the file.
 - Content-addressed storage with a sha256 per file; extension is taken from the file name.
 - No `ivy.xml`, POM, `maven-metadata.xml` or checksum files are generated: only the files you `PUT` are served.
 - Quarantine and webhooks (`artifact.uploaded`, `artifact.deleted`) apply as for other formats.

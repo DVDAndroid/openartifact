@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/openartifact/openartifact/internal/licensepolicy"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/urlparams"
 	"github.com/openartifact/openartifact/internal/webhook"
@@ -376,6 +378,20 @@ func (h *HTTPHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
 		DownloadCount: 0,
 	}
 
+	// Reserve quota before anything is persisted; every failure path below
+	// returns the reservation.
+	if err := quota.Enforce(r.Context(), h.DB, repoID, crate.SizeBytes); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
+			return
+		}
+
+		h.Log.Errorw("failed to reserve quota", "repo", repoName, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	// Store the blob and insert the referencing row under the per-blob lock so
 	// a concurrent unpublish cannot delete the blob in between.
 	if err := storage.WithBlobLock(r.Context(), h.DB, checksum, func(ctx context.Context) error {
@@ -396,6 +412,10 @@ func (h *HTTPHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
 
 		return nil
 	}); err != nil {
+		if relErr := quota.Release(r.Context(), h.DB, repoID, crate.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
+		}
+
 		// A concurrent publish of the same version won the race.
 		if database.IsUniqueViolation(err) {
 			writePublishError(w, http.StatusConflict, fmt.Sprintf("crate version `%s@%s` is already uploaded", crateName, version))

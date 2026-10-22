@@ -66,7 +66,7 @@ There is no `/v2/_catalog`. Errors use the registry JSON shape `{"errors":[{"cod
 - **Delete:** a tag reference removes only that tag; the manifest and its blobs stay until [garbage collection](#garbage-collection) removes them. A digest reference removes the manifest and every tag of that image that points to it and frees the blob when nothing else references it. Blob delete removes the repository's blob record and frees storage when unreferenced. All return `202`. With the default [trash](../operations/trash.md) retention, a tag or manifest delete moves the item to the trash instead (a manifest takes its tags with it, and its blobs stay referenced until purge); the client sees the same `202` and a following pull is `404`.
 - **Immutable releases:** in a repository with `immutable_releases` every tag is a release. Moving a tag to a different digest, deleting a tag and deleting a manifest answer `409` unless an admin sends `?force=true`; re-pushing the same digest is not a change. See [immutable releases](../operations/trash.md#immutable-releases).
 - **Quarantine:** manifest and blob reads of quarantined content are refused.
-- **Quota:** storage quotas are not enforced for Docker pushes, and Docker usage is not counted, so garbage collection does not touch the usage counters either ([quotas](../repositories/cleanup-and-quotas.md#storage-quotas)).
+- **Quota:** pushes are checked against the repository's [storage quota](../repositories/cleanup-and-quotas.md#what-counts): blob bytes (layers and configs, once per repository) and one artifact per manifest. A push over quota is refused with `507` and the OCI `DENIED` error. Manifest delete, blob delete and garbage collection give the usage back.
 
 ## Proxy and group repositories
 

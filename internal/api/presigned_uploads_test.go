@@ -127,6 +127,28 @@ type presignUploadDB struct {
 	artifacts map[string]*models.RawArtifact
 	targets   map[string][]*models.PermissionTarget // by user id
 	claims    int
+
+	quotaLimit     int64 // 0 = unlimited
+	quotaUsed      int64
+	quotaArtifacts int
+}
+
+func (d *presignUploadDB) ReserveStorageUsage(_ context.Context, _ string, size int64, count int) (bool, error) {
+	if d.quotaLimit > 0 && d.quotaUsed+size > d.quotaLimit {
+		return false, nil
+	}
+
+	d.quotaUsed += size
+	d.quotaArtifacts += count
+
+	return true, nil
+}
+
+func (d *presignUploadDB) DecrementStorageUsage(_ context.Context, _ string, size int64, count int) error {
+	d.quotaUsed -= size
+	d.quotaArtifacts -= count
+
+	return nil
 }
 
 func (d *presignUploadDB) GetPermissionTargetsForPrincipal(_ context.Context, userID string, _ []string) ([]*models.PermissionTarget, error) {
@@ -591,6 +613,78 @@ func TestPresignedUpload_CompleteOverwriteKeepsID(t *testing.T) {
 
 	if out.ID != "existing-id" {
 		t.Errorf("id = %q, want the overwritten row's id like a raw PUT", out.ID)
+	}
+}
+
+func TestPresignedUpload_CompleteReservesQuota(t *testing.T) {
+	f := newPresignUploadFixture(t, "raw", "hosted")
+	content := []byte("hello presigned world")
+	resp := f.start(t, content)
+	f.store.staged[resp.ID] = content
+
+	if rw := f.call(t, false, completePath(resp.ID), nil); rw.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body %s", rw.Code, rw.Body.String())
+	}
+
+	if f.db.quotaUsed != int64(len(content)) || f.db.quotaArtifacts != 1 {
+		t.Errorf("quota used=%d artifacts=%d, want %d/1", f.db.quotaUsed, f.db.quotaArtifacts, len(content))
+	}
+}
+
+// An upload that does not fit is answered 507 and records nothing; it stays
+// pending, so completing it again once space is available succeeds.
+func TestPresignedUpload_CompleteOverQuotaIsRetryable(t *testing.T) {
+	f := newPresignUploadFixture(t, "raw", "hosted")
+	f.db.quotaLimit = 3
+
+	content := []byte("hello presigned world")
+	resp := f.start(t, content)
+	f.store.staged[resp.ID] = content
+
+	rw := f.call(t, false, completePath(resp.ID), nil)
+	if rw.Code != http.StatusInsufficientStorage {
+		t.Fatalf("status = %d, want 507, body %s", rw.Code, rw.Body.String())
+	}
+
+	var out ErrorResponse
+	if err := json.Unmarshal(rw.Body.Bytes(), &out); err != nil || out.Code != "quota_exceeded" {
+		t.Errorf("body %q, want code quota_exceeded", rw.Body.String())
+	}
+
+	if len(f.db.artifacts) != 0 || f.db.quotaUsed != 0 || f.db.quotaArtifacts != 0 {
+		t.Errorf("artifacts=%d used=%d count=%d; want nothing recorded", len(f.db.artifacts), f.db.quotaUsed, f.db.quotaArtifacts)
+	}
+
+	if f.db.uploads[resp.ID] == nil || f.store.staged[resp.ID] == nil {
+		t.Fatal("the pending upload or its staging object was discarded")
+	}
+
+	f.db.quotaLimit = 0
+
+	if rw := f.call(t, false, completePath(resp.ID), nil); rw.Code != http.StatusCreated {
+		t.Fatalf("retry status = %d, body %s", rw.Code, rw.Body.String())
+	}
+
+	if f.db.quotaUsed != int64(len(content)) || f.db.quotaArtifacts != 1 {
+		t.Errorf("quota used=%d artifacts=%d after retry, want %d/1", f.db.quotaUsed, f.db.quotaArtifacts, len(content))
+	}
+}
+
+func TestPresignedUpload_CompleteOverwriteReleasesPreviousQuota(t *testing.T) {
+	f := newPresignUploadFixture(t, "raw", "hosted")
+	f.db.artifacts["releases/app.bin"] = &models.RawArtifact{ID: "existing-id", Path: "releases/app.bin", SHA256: digestOf([]byte("old")), BlobKey: digestOf([]byte("old")), SizeBytes: 3}
+	f.db.quotaUsed, f.db.quotaArtifacts = 3, 1
+
+	content := []byte("new content")
+	resp := f.start(t, content)
+	f.store.staged[resp.ID] = content
+
+	if rw := f.call(t, false, completePath(resp.ID), nil); rw.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body %s", rw.Code, rw.Body.String())
+	}
+
+	if f.db.quotaUsed != int64(len(content)) || f.db.quotaArtifacts != 1 {
+		t.Errorf("quota used=%d artifacts=%d, want %d/1", f.db.quotaUsed, f.db.quotaArtifacts, len(content))
 	}
 }
 

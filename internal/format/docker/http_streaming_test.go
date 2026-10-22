@@ -38,6 +38,9 @@ type fakeDB struct {
 	blobCreates   int
 	blobs         map[string]*models.DockerBlob // digest -> blob held by repo
 	deletedUpload bool
+
+	ledger        quotaLedger // quota reservations (see quota_test.go)
+	createBlobErr error       // fails CreateDockerBlob
 }
 
 func (f *fakeDB) GetRepositoryByName(_ context.Context, _ string) (*models.Repository, error) {
@@ -88,8 +91,13 @@ func (f *fakeDB) GetDockerBlob(_ context.Context, _, digest string) (*models.Doc
 }
 
 func (f *fakeDB) CreateDockerBlob(_ context.Context, blob *models.DockerBlob) error {
+	if f.createBlobErr != nil {
+		return f.createBlobErr
+	}
+
 	f.createdBlob = blob
 	f.blobCreates++
+	blob.Inserted = true
 
 	if f.blobs == nil {
 		f.blobs = map[string]*models.DockerBlob{}

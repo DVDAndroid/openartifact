@@ -23,6 +23,7 @@ import (
 // queries, and creating a key twice yields database.ErrDuplicate.
 type condaDB struct {
 	*formattest.DB
+	quotaFake
 
 	// pkg is the most recently stored package, nil after it was deleted.
 	pkg  *models.CondaPackage

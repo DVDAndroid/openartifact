@@ -33,6 +33,7 @@ import (
 	"github.com/openartifact/openartifact/internal/ocipath"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/urlparams"
@@ -247,6 +248,45 @@ func (h *HTTPHandler) errorResponse(w http.ResponseWriter, statusCode int, code,
 	}
 }
 
+// quotaExceeded answers a push the repository's storage quota has no room for:
+// 507 in the registry error envelope (code DENIED), so docker, podman and
+// skopeo print the message.
+func (h *HTTPHandler) quotaExceeded(w http.ResponseWriter) {
+	h.errorResponse(w, http.StatusInsufficientStorage, "DENIED", quota.Message)
+}
+
+// Docker usage of a repository is the bytes of every layer/config blob it holds
+// (one docker_blobs row each, 0 artifacts) plus the bytes of every manifest
+// (one docker_manifests row each, 1 artifact), the same rows the reconcile in
+// internal/database counts. Tags and in-progress upload sessions are not
+// metered. A reservation is made only for a row a request is about to create,
+// before anything is stored.
+
+// releaseQuota returns a reservation, or the usage of a row that was removed:
+// size bytes and count artifacts (1 for a manifest, 0 for a blob).
+func (h *HTTPHandler) releaseQuota(ctx context.Context, repoID string, size int64, count int) {
+	if err := quota.ReleaseN(ctx, h.db, repoID, size, count); err != nil {
+		h.log.Warnw("failed to release quota", "repository_id", repoID, "error", err)
+	}
+}
+
+// settleQuota reconciles a reservation with what the insert did, for the rare
+// race where another request changed the row between the existence check and
+// the insert: a row that turned out not to be new gives its reservation back,
+// and a row that is new although none was reserved is charged now (the push
+// has already succeeded, so a full quota cannot refuse it; the periodic
+// reconcile corrects any excess).
+func (h *HTTPHandler) settleQuota(ctx context.Context, repoID string, size int64, count int, reserved, inserted bool) {
+	switch {
+	case reserved && !inserted:
+		h.releaseQuota(ctx, repoID, size, count)
+	case !reserved && inserted:
+		if err := quota.EnforceN(ctx, h.db, repoID, size, count); err != nil {
+			h.log.Warnw("quota not charged for a re-created row; reconcile will repair it", "repository_id", repoID, "error", err)
+		}
+	}
+}
+
 // handleVersionCheck returns 200 OK with Docker-Distribution-API-Version header.
 func (h *HTTPHandler) handleVersionCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
@@ -434,6 +474,11 @@ func (h *HTTPHandler) handlePutManifest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	reserved, ok := h.reserveManifest(w, r, repo, image, digest, int64(len(body)))
+	if !ok {
+		return
+	}
+
 	manifest := &models.DockerManifest{
 		ID:            uuid.New().String(),
 		RepositoryID:  repo.ID,
@@ -477,6 +522,10 @@ func (h *HTTPHandler) handlePutManifest(w http.ResponseWriter, r *http.Request) 
 
 		return nil
 	}); err != nil {
+		if reserved {
+			h.releaseQuota(r.Context(), repo.ID, manifest.Size, 1)
+		}
+
 		if errors.Is(err, database.ErrDockerBlobsMissing) {
 			h.errorResponse(w, http.StatusBadRequest, "MANIFEST_BLOB_UNKNOWN", "manifest references a blob that is not in the image")
 			return
@@ -487,6 +536,8 @@ func (h *HTTPHandler) handlePutManifest(w http.ResponseWriter, r *http.Request) 
 
 		return
 	}
+
+	h.settleQuota(r.Context(), repo.ID, manifest.Size, 1, reserved, manifest.Inserted)
 
 	// If reference is a tag (not a digest), upsert the tag
 	if !strings.HasPrefix(reference, "sha256:") {
@@ -529,6 +580,39 @@ func (h *HTTPHandler) handlePutManifest(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Docker-Content-Digest", digest)
 	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusCreated)
+}
+
+// reserveManifest reserves quota for a manifest the image does not hold yet
+// (size bytes, one artifact). Re-pushing a manifest the image already holds
+// (an idempotent refresh, or a tag move) reserves nothing; reserved is false
+// then. When ok is false the response has been written: 507 when the quota has
+// no room, 500 otherwise.
+func (h *HTTPHandler) reserveManifest(w http.ResponseWriter, r *http.Request, repo *models.Repository, image, digest string, size int64) (reserved, ok bool) {
+	existing, err := h.db.GetDockerManifest(r.Context(), repo.ID, image, digest)
+	if err != nil {
+		h.log.Errorw("failed to look up manifest before push", "digest", digest, "error", err)
+		h.errorResponse(w, http.StatusInternalServerError, "UNKNOWN", "internal error")
+
+		return false, false
+	}
+
+	if existing != nil {
+		return false, true
+	}
+
+	if err := quota.EnforceN(r.Context(), h.db, repo.ID, size, 1); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			h.quotaExceeded(w)
+			return false, false
+		}
+
+		h.log.Errorw("failed to reserve quota", "repo", repo.Name, "error", err)
+		h.errorResponse(w, http.StatusInternalServerError, "UNKNOWN", "internal error")
+
+		return false, false
+	}
+
+	return true, true
 }
 
 // tagMoveAllowed reports whether pushing digest under tagName may proceed. On
@@ -609,7 +693,7 @@ func (h *HTTPHandler) handleDeleteManifest(w http.ResponseWriter, r *http.Reques
 		Kind:     models.TrashKindDockerManifest,
 		IDs:      []string{deleted.ID},
 		Resource: name + "@" + reference,
-	}, func() error { return h.hardDeleteManifest(r.Context(), repo.ID, image, reference) })
+	}, func() error { return h.hardDeleteManifest(r.Context(), repo.ID, image, reference, deleted.Size) })
 	if err != nil {
 		h.deleteError(w, "manifest", reference, err)
 		return
@@ -630,8 +714,10 @@ func (h *HTTPHandler) handleDeleteManifest(w http.ResponseWriter, r *http.Reques
 
 // hardDeleteManifest permanently removes a manifest and the tags pointing at
 // it, then its content blob when nothing else references it. Layer blobs are
-// never touched here; registry GC reclaims them.
-func (h *HTTPHandler) hardDeleteManifest(ctx context.Context, repoID, image, digest string) error {
+// never touched here; registry GC reclaims them. The manifest's quota usage
+// (size bytes, one artifact) is released only when this call removed the row;
+// a soft delete keeps it until the trash purge.
+func (h *HTTPHandler) hardDeleteManifest(ctx context.Context, repoID, image, digest string, size int64) error {
 	if err := h.db.DeleteDockerTagsByDigest(ctx, repoID, image, digest); err != nil {
 		return fmt.Errorf("delete tags of manifest: %w", err)
 	}
@@ -640,6 +726,8 @@ func (h *HTTPHandler) hardDeleteManifest(ctx context.Context, repoID, image, dig
 	if err := h.db.DeleteDockerManifest(ctx, repoID, image, digest); err != nil {
 		return fmt.Errorf("delete manifest: %w", err)
 	}
+
+	h.releaseQuota(ctx, repoID, size, 1)
 
 	// Reclaim the manifest's content blob from storage only if no other
 	// docker_manifests row (a trashed copy included) or any other format table
@@ -655,7 +743,7 @@ func (h *HTTPHandler) hardDeleteManifest(ctx context.Context, repoID, image, dig
 // longer live, 409 when the repository's immutable_releases forbids it.
 func (h *HTTPHandler) deleteError(w http.ResponseWriter, what, reference string, err error) {
 	switch {
-	case errors.Is(err, database.ErrTrashNotFound):
+	case errors.Is(err, database.ErrTrashNotFound), errors.Is(err, database.ErrDockerRowNotFound):
 		h.errorResponse(w, http.StatusNotFound, "MANIFEST_UNKNOWN", what+" not found")
 	case errors.Is(err, trash.ErrImmutableRelease):
 		h.errorResponse(w, http.StatusConflict, "DENIED", "released versions are immutable in this repository")
@@ -961,11 +1049,19 @@ func (h *HTTPHandler) handleDeleteBlob(w http.ResponseWriter, r *http.Request) {
 	// storage content is still referenced elsewhere (cross-repo dedup)
 	// before reclaiming it.
 	if err := h.db.DeleteDockerBlob(r.Context(), repo.ID, digest); err != nil {
+		if errors.Is(err, database.ErrDockerRowNotFound) {
+			h.errorResponse(w, http.StatusNotFound, "BLOB_UNKNOWN", "blob not found")
+			return
+		}
+
 		h.log.Errorw("failed to delete blob from db", "digest", digest, "error", err)
 		h.errorResponse(w, http.StatusInternalServerError, "UNKNOWN", "internal error")
 
 		return
 	}
+
+	// The row is gone for good (blobs have no trash): its bytes are free again.
+	h.releaseQuota(r.Context(), repo.ID, blob.Size, 0)
 
 	if err := storage.SafeDeleteBlob(r.Context(), h.db, h.blobStore, blob.BlobSHA256); err != nil {
 		h.log.Errorw("failed to delete blob from store", "sha256", blob.BlobSHA256, "error", err)
@@ -1059,7 +1155,18 @@ func (h *HTTPHandler) tryMountBlob(w http.ResponseWriter, r *http.Request, repo 
 			return false
 		}
 
-		if !h.linkBlob(ctx, repo.ID, image, digest, src) {
+		if err := h.linkBlob(ctx, repo.ID, image, digest, src); err != nil {
+			// A mount that does not fit would not fit as an upload either:
+			// answer now rather than make the client send the layer first.
+			if errors.Is(err, quota.ErrExceeded) {
+				h.quotaExceeded(w)
+				return true
+			}
+
+			if !errors.Is(err, errMountSourceGone) {
+				h.log.Errorw("failed to mount blob", "digest", digest, "error", err)
+			}
+
 			return false
 		}
 	}
@@ -1122,9 +1229,11 @@ func (h *HTTPHandler) mountSource(r *http.Request, target *models.Repository, im
 // linkBlob makes src available to the target image: it adds a docker_blobs row
 // for the target repository pointing at the same content-addressed storage
 // blob (none for a source in the same repository) and links the image. It
-// reports whether the link exists afterwards.
-func (h *HTTPHandler) linkBlob(ctx context.Context, repoID, image, digest string, src *models.DockerBlob) bool {
-	err := storage.WithBlobLock(ctx, h.db, src.BlobSHA256, func(ctx context.Context) error {
+// returns nil when the link exists afterwards, errMountSourceGone when the
+// source vanished and quota.ErrExceeded when the new row does not fit the
+// target repository's quota.
+func (h *HTTPHandler) linkBlob(ctx context.Context, repoID, image, digest string, src *models.DockerBlob) error {
+	return storage.WithBlobLock(ctx, h.db, src.BlobSHA256, func(ctx context.Context) error {
 		// Registry GC may have removed the source record (and its storage) since
 		// mountSource looked it up; linking then would point at a blob that is gone.
 		still, err := h.db.GetDockerBlob(ctx, src.RepositoryID, digest)
@@ -1140,26 +1249,49 @@ func (h *HTTPHandler) linkBlob(ctx context.Context, repoID, image, digest string
 			return h.linkBlobImage(ctx, repoID, image, digest)
 		}
 
-		return h.db.CreateDockerBlob(ctx, &models.DockerBlob{
-			ID:           uuid.New().String(),
-			RepositoryID: repoID,
-			Digest:       digest,
-			MediaType:    src.MediaType,
-			Size:         src.Size,
-			BlobSHA256:   src.BlobSHA256,
-			Image:        &image,
-			CreatedAt:    time.Now(),
-		})
+		return h.createMountedBlob(ctx, repoID, image, digest, src)
 	})
-	if err != nil {
-		if !errors.Is(err, errMountSourceGone) {
-			h.log.Errorw("failed to mount blob", "digest", digest, "error", err)
-		}
+}
 
-		return false
+// createMountedBlob gives the target repository its own row for the source's
+// blob. The repository may already hold the blob (linked to another image):
+// that mount stores nothing new and reserves nothing; otherwise the row's bytes
+// are reserved first and returned if the insert fails.
+func (h *HTTPHandler) createMountedBlob(ctx context.Context, repoID, image, digest string, src *models.DockerBlob) error {
+	held, err := h.db.GetDockerBlob(ctx, repoID, digest)
+	if err != nil {
+		return fmt.Errorf("look up mount target blob: %w", err)
 	}
 
-	return true
+	reserved := held == nil
+	if reserved {
+		if err := quota.EnforceN(ctx, h.db, repoID, src.Size, 0); err != nil {
+			return fmt.Errorf("reserve blob quota: %w", err)
+		}
+	}
+
+	blob := &models.DockerBlob{
+		ID:           uuid.New().String(),
+		RepositoryID: repoID,
+		Digest:       digest,
+		MediaType:    src.MediaType,
+		Size:         src.Size,
+		BlobSHA256:   src.BlobSHA256,
+		Image:        &image,
+		CreatedAt:    time.Now(),
+	}
+
+	if err := h.db.CreateDockerBlob(ctx, blob); err != nil {
+		if reserved {
+			h.releaseQuota(ctx, repoID, src.Size, 0)
+		}
+
+		return fmt.Errorf("create mounted blob record: %w", err)
+	}
+
+	h.settleQuota(ctx, repoID, src.Size, 0, reserved, blob.Inserted)
+
+	return nil
 }
 
 // lockUpload takes the upload session's lock, so requests on one session run
@@ -1575,25 +1707,21 @@ func (h *HTTPHandler) handleCompleteBlobUpload(w http.ResponseWriter, r *http.Re
 			return nil
 		}
 
-		if _, err := h.blobStore.Put(ctx, f, map[string]string{
-			"sha256": computedDigestHex,
-			"digest": digest,
-		}); err != nil {
-			return fmt.Errorf("store blob: %w", err)
-		}
-
-		// Keyed by the sha256 computed from the spooled bytes, never by a
-		// value the store or client reports.
-		blob.BlobSHA256 = computedDigestHex
-
-		if err := h.db.CreateDockerBlob(ctx, blob); err != nil {
-			return fmt.Errorf("create blob record: %w", err)
-		}
-
-		return nil
+		return h.storeNewBlob(ctx, f, blob, computedDigestHex)
 	}); err != nil {
 		if errors.Is(err, storage.ErrDigestMismatch) {
 			h.digestChanged(w, r, repo.ID, uploadUUID, tempFile, err)
+			return
+		}
+
+		if errors.Is(err, quota.ErrExceeded) {
+			// Nothing was stored; the staged bytes would only wait for the
+			// stale-session sweep, so discard the session as a digest mismatch does.
+			h.quotaExceeded(w)
+
+			_ = os.Remove(tempFile)
+			_ = h.db.DeleteDockerUpload(r.Context(), repo.ID, uploadUUID)
+
 			return
 		}
 
@@ -1611,6 +1739,37 @@ func (h *HTTPHandler) handleCompleteBlobUpload(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Docker-Content-Digest", digest)
 	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusCreated)
+}
+
+// storeNewBlob stores the verified bytes of a blob the repository does not hold
+// and records its row. The blob's bytes are reserved first (quota.ErrExceeded
+// when they do not fit, with nothing stored) and returned when storing or
+// inserting fails. The caller holds the blob lock.
+func (h *HTTPHandler) storeNewBlob(ctx context.Context, content io.Reader, blob *models.DockerBlob, shaHex string) error {
+	if err := quota.EnforceN(ctx, h.db, blob.RepositoryID, blob.Size, 0); err != nil {
+		return fmt.Errorf("reserve blob quota: %w", err)
+	}
+
+	if _, err := h.blobStore.Put(ctx, content, map[string]string{
+		"sha256": shaHex,
+		"digest": blob.Digest,
+	}); err != nil {
+		h.releaseQuota(ctx, blob.RepositoryID, blob.Size, 0)
+		return fmt.Errorf("store blob: %w", err)
+	}
+
+	// Keyed by the sha256 computed from the spooled bytes, never by a value the
+	// store or client reports.
+	blob.BlobSHA256 = shaHex
+
+	if err := h.db.CreateDockerBlob(ctx, blob); err != nil {
+		h.releaseQuota(ctx, blob.RepositoryID, blob.Size, 0)
+		return fmt.Errorf("create blob record: %w", err)
+	}
+
+	h.settleQuota(ctx, blob.RepositoryID, blob.Size, 0, true, blob.Inserted)
+
+	return nil
 }
 
 // appendFinalChunk appends the request body to the staged file (after

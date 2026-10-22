@@ -22,11 +22,19 @@ import (
 
 type nugetDB struct {
 	*formattest.DB
+	quotaFake
 
 	pkg *models.NuGetPackage
+
+	// createErr, when set, is returned by CreateNuGetPackage.
+	createErr error
 }
 
 func (d *nugetDB) CreateNuGetPackage(_ context.Context, p *models.NuGetPackage) error {
+	if d.createErr != nil {
+		return d.createErr
+	}
+
 	d.pkg = p
 	return nil
 }

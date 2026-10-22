@@ -28,7 +28,7 @@ type trashSpec struct {
 	// blobCols are the uuid columns referencing blobs(id).
 	blobCols []string
 	// quota marks formats whose uploads reserve storage_quotas usage per row
-	// (deb, rpm, maven, helm, npm, rubygems); a purge gives it back.
+	// (every hosted format except docker tags); a purge gives it back.
 	quota bool
 	// listWhere is an extra predicate applied to the trash listing (to hide rows
 	// that are listed under another item), "" for none.
@@ -69,14 +69,14 @@ var trashSpecs = []*trashSpec{
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindIvy, table: "ivy_artifacts", format: "ivy",
+		kind: models.TrashKindIvy, table: "ivy_artifacts", format: "ivy", quota: true,
 		repoID:   "t.repository_id",
 		name:     "t.organisation || '/' || t.module || '/' || t.artifact_name || '.' || t.artifact_ext",
 		version:  "t.revision",
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindSBT, table: "sbt_artifacts", format: "sbt",
+		kind: models.TrashKindSBT, table: "sbt_artifacts", format: "sbt", quota: true,
 		repoID:   "t.repository_id",
 		name:     "t.group_id || ':' || t.artifact_id || '/' || t.filename",
 		version:  "t.version",
@@ -90,22 +90,22 @@ var trashSpecs = []*trashSpec{
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindPyPI, table: "pypi_packages", format: "pypi",
+		kind: models.TrashKindPyPI, table: "pypi_packages", format: "pypi", quota: true,
 		repoID: "t.repository_id", name: "t.filename", version: "t.version",
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindNuGet, table: "nuget_packages", format: "nuget",
+		kind: models.TrashKindNuGet, table: "nuget_packages", format: "nuget", quota: true,
 		repoID: "t.repository_id", name: "t.package_id", version: "t.version",
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindGoMod, table: "gomod_modules", format: "go",
+		kind: models.TrashKindGoMod, table: "gomod_modules", format: "go", quota: true,
 		repoID: "t.repository_id", name: "t.module_path", version: "t.version",
 		blobCols: []string{"t.zip_blob_id", "t.mod_blob_id"},
 	},
 	{
-		kind: models.TrashKindCargo, table: "cargo_crates", format: "cargo",
+		kind: models.TrashKindCargo, table: "cargo_crates", format: "cargo", quota: true,
 		repoID: "t.repository_id", name: "t.name", version: "t.version",
 		blobCols: []string{"t.blob_id"},
 	},
@@ -117,14 +117,14 @@ var trashSpecs = []*trashSpec{
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindConda, table: "conda_packages", format: "conda",
+		kind: models.TrashKindConda, table: "conda_packages", format: "conda", quota: true,
 		repoID:   "t.repository_id",
 		name:     "t.platform || '/' || t.name",
 		version:  "t.version || '-' || t.build_string",
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindConan, table: "conan_packages", format: "conan",
+		kind: models.TrashKindConan, table: "conan_packages", format: "conan", quota: true,
 		repoID:   "t.repository_id",
 		name:     "t.name",
 		version:  "t.version || '@' || t.user_channel",
@@ -136,12 +136,12 @@ var trashSpecs = []*trashSpec{
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindRaw, table: "raw_artifacts", format: "raw",
+		kind: models.TrashKindRaw, table: "raw_artifacts", format: "raw", quota: true,
 		repoID: "t.repository_id", name: "t.path", version: "''",
 		blobCols: []string{"t.blob_id"},
 	},
 	{
-		kind: models.TrashKindDockerManifest, table: "docker_manifests", format: "docker",
+		kind: models.TrashKindDockerManifest, table: "docker_manifests", format: "docker", quota: true,
 		repoID: "t.repository_id", name: "t.image", version: "t.digest",
 		blobCols: []string{"t.blob_id"},
 		// Deleting a manifest by digest also removes the tags that pointed at it.

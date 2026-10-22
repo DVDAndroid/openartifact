@@ -31,6 +31,8 @@ type manifestFakeDB struct {
 
 	manifests map[string]*models.DockerManifest // image|digest -> manifest
 	tags      map[string]*models.DockerTag      // image|name -> tag
+
+	ledger quotaLedger // quota reservations (see quota_test.go)
 }
 
 func newManifestFakeDB(repoID string) *manifestFakeDB {
@@ -61,7 +63,11 @@ func (f *manifestFakeDB) EnsureBlob(_ context.Context, sha256, _ string, _ int64
 }
 
 func (f *manifestFakeDB) CreateDockerManifest(_ context.Context, m *models.DockerManifest) error {
-	f.manifests[scoped(m.Image, m.Digest)] = m
+	k := scoped(m.Image, m.Digest)
+	_, existed := f.manifests[k]
+	f.manifests[k] = m
+	m.Inserted = !existed
+
 	return nil
 }
 
@@ -70,7 +76,13 @@ func (f *manifestFakeDB) GetDockerManifest(_ context.Context, _, image, digest s
 }
 
 func (f *manifestFakeDB) DeleteDockerManifest(_ context.Context, _, image, digest string) error {
-	delete(f.manifests, scoped(image, digest))
+	k := scoped(image, digest)
+	if _, ok := f.manifests[k]; !ok {
+		return database.ErrDockerRowNotFound
+	}
+
+	delete(f.manifests, k)
+
 	return nil
 }
 

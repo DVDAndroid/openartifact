@@ -11,11 +11,16 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openartifact/openartifact/internal/android"
 	"go.yaml.in/yaml/v3"
 )
 
 //go:embed openapi.json
-var openapiSpec []byte
+var openapiBase []byte
+
+// openapiSpec is openapi.json plus the fragments of handlers that live in
+// their own packages (see openapi_fragments.go).
+var openapiSpec = mergeOpenAPIFragments(openapiBase, android.OpenAPI) //nolint:gochecknoglobals // built once at init, read-only
 
 type OpenAPIHandler struct{}
 

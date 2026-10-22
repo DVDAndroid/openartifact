@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openartifact/openartifact/internal/android"
 	"github.com/openartifact/openartifact/pkg/logger"
 )
 
@@ -85,6 +86,7 @@ func TestOpenAPISpecMatchesRoutes(t *testing.T) {
 	NewDebUploadHandler(log, nil, nil, nil).Register(r)
 	NewRPMUploadHandler(log, nil, nil, nil).Register(r)
 	NewDeltaHandler(log, nil, nil).Register(r)
+	android.NewHandler(log, nil, nil, nil, nil, "", nil).Register(r)
 
 	routes := map[string]bool{}
 	err = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {

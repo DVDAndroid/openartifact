@@ -136,11 +136,17 @@ func (f *projectFakeDB) repoByName(t *testing.T, name string) *models.Repository
 	return nil
 }
 
-func TestBackupRestore_ProjectsRoundTrip(t *testing.T) {
-	ctx := context.Background()
+// projectsSeed is what TestBackupRestore_ProjectsRoundTrip puts in the source.
+type projectsSeed struct {
+	acme    *models.Project
+	team    *models.Group
+	formats []string
+}
 
-	src := newProjectFakeDB("src")
-	srcEngine, _ := newTestEngine(t, src)
+func seedProjectsSource(t *testing.T, src *projectFakeDB) projectsSeed {
+	t.Helper()
+
+	ctx := context.Background()
 
 	owner, _ := src.CreateUser(ctx, &models.User{Username: "owner"})
 	dev, _ := src.CreateUser(ctx, &models.User{Username: "dev"})
@@ -169,6 +175,77 @@ func TestBackupRestore_ProjectsRoundTrip(t *testing.T) {
 	_ = src.CreateRepository(ctx, &models.Repository{Name: "acme-libs", Format: "rpm", RepoType: "hosted", ProjectID: &acme.ID})
 	_ = src.CreateRepository(ctx, &models.Repository{Name: "loose", Format: "rpm", RepoType: "hosted", ProjectID: &sys})
 
+	return projectsSeed{acme: acme, team: team, formats: formats}
+}
+
+func assertRestoredProjectPolicy(t *testing.T, dst *projectFakeDB, seed projectsSeed) *models.Project {
+	t.Helper()
+
+	got := dst.projectByName(t, "acme")
+	if got.ID == seed.acme.ID {
+		t.Fatal("project kept its source id")
+	}
+
+	newOwner := dst.userByName(t, "owner")
+	if got.OwnerID == nil || *got.OwnerID != newOwner {
+		t.Fatalf("owner = %v, want remapped user %s", got.OwnerID, newOwner)
+	}
+
+	if !slices.Equal(got.AllowedFormats, seed.formats) || !slices.Equal(got.AllowedRepoTypes, []string{"hosted", "proxy"}) ||
+		got.RepoNamePrefix != "acme-" || !got.AllowPublicRepos || got.MaxRepositories != 7 || got.TokenMaxTTLDays != 30 {
+		t.Fatalf("policy not restored: %+v", got)
+	}
+
+	if o := dst.projectByName(t, "open"); o.AllowedFormats != nil || o.MaxRepositories != 0 || o.TokenMaxTTLDays != 0 {
+		t.Fatalf("open project policy = %+v, want nil formats and zero limits", o)
+	}
+
+	return got
+}
+
+func assertRestoredProjectMembers(t *testing.T, dst *projectFakeDB, got *models.Project) {
+	t.Helper()
+
+	if r := dst.roleOf(got.ID, dst.userByName(t, "owner")); r != models.ProjectRoleOwner {
+		t.Fatalf("owner member role = %q", r)
+	}
+
+	if r := dst.roleOf(got.ID, dst.userByName(t, "dev")); r != models.ProjectRoleDeveloper {
+		t.Fatalf("dev member role = %q", r)
+	}
+}
+
+func assertRestoredProjectGroup(t *testing.T, dst *projectFakeDB, got *models.Project, seed projectsSeed) {
+	t.Helper()
+
+	if len(dst.pgroups) != 1 {
+		t.Fatalf("restored %d project groups, want 1", len(dst.pgroups))
+	}
+
+	pg := dst.pgroups[0]
+	newOwner := dst.userByName(t, "owner")
+
+	var newGroup string
+
+	for id, g := range dst.groups {
+		if g.Name == "team" {
+			newGroup = id
+		}
+	}
+
+	if pg.ProjectID != got.ID || pg.GroupID != newGroup || pg.GroupID == seed.team.ID || pg.Role != models.ProjectRoleMaintainer ||
+		pg.CreatedBy == nil || *pg.CreatedBy != newOwner {
+		t.Fatalf("project group = %+v, want project %s group %s (remapped) maintainer created by %s", pg, got.ID, newGroup, newOwner)
+	}
+}
+
+func TestBackupRestore_ProjectsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+
+	src := newProjectFakeDB("src")
+	srcEngine, _ := newTestEngine(t, src)
+	seed := seedProjectsSource(t, src)
+
 	job := &models.BackupJob{ID: "job1", Status: "pending", Type: "full"}
 	_ = src.CreateBackupJob(ctx, job)
 
@@ -183,51 +260,9 @@ func TestBackupRestore_ProjectsRoundTrip(t *testing.T) {
 		t.Fatalf("RunRestore: %v", err)
 	}
 
-	got := dst.projectByName(t, "acme")
-	if got.ID == acme.ID {
-		t.Fatal("project kept its source id")
-	}
-
-	newOwner := dst.userByName(t, "owner")
-	if got.OwnerID == nil || *got.OwnerID != newOwner {
-		t.Fatalf("owner = %v, want remapped user %s", got.OwnerID, newOwner)
-	}
-
-	if !slices.Equal(got.AllowedFormats, formats) || !slices.Equal(got.AllowedRepoTypes, []string{"hosted", "proxy"}) ||
-		got.RepoNamePrefix != "acme-" || !got.AllowPublicRepos || got.MaxRepositories != 7 || got.TokenMaxTTLDays != 30 {
-		t.Fatalf("policy not restored: %+v", got)
-	}
-
-	if o := dst.projectByName(t, "open"); o.AllowedFormats != nil || o.MaxRepositories != 0 || o.TokenMaxTTLDays != 0 {
-		t.Fatalf("open project policy = %+v, want nil formats and zero limits", o)
-	}
-
-	if r := dst.roleOf(got.ID, newOwner); r != models.ProjectRoleOwner {
-		t.Fatalf("owner member role = %q", r)
-	}
-
-	if r := dst.roleOf(got.ID, dst.userByName(t, "dev")); r != models.ProjectRoleDeveloper {
-		t.Fatalf("dev member role = %q", r)
-	}
-
-	if len(dst.pgroups) != 1 {
-		t.Fatalf("restored %d project groups, want 1", len(dst.pgroups))
-	}
-
-	pg := dst.pgroups[0]
-
-	var newGroup string
-
-	for id, g := range dst.groups {
-		if g.Name == "team" {
-			newGroup = id
-		}
-	}
-
-	if pg.ProjectID != got.ID || pg.GroupID != newGroup || pg.GroupID == team.ID || pg.Role != models.ProjectRoleMaintainer ||
-		pg.CreatedBy == nil || *pg.CreatedBy != newOwner {
-		t.Fatalf("project group = %+v, want project %s group %s (remapped) maintainer created by %s", pg, got.ID, newGroup, newOwner)
-	}
+	got := assertRestoredProjectPolicy(t, dst, seed)
+	assertRestoredProjectMembers(t, dst, got)
+	assertRestoredProjectGroup(t, dst, got, seed)
 
 	if r := dst.repoByName(t, "acme-libs"); r.ProjectID == nil || *r.ProjectID != got.ID {
 		t.Fatalf("acme-libs project = %v, want %s", r.ProjectID, got.ID)

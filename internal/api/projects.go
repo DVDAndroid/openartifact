@@ -311,10 +311,11 @@ func (h *ProjectsHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		projectPolicy
+
 		Name        string `json:"name"`
 		DisplayName string `json:"display_name"`
 		Description string `json:"description"`
-		projectPolicy
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")
@@ -446,9 +447,10 @@ func (h *ProjectsHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Pointer fields: omitted fields keep their current value.
 	var req struct {
+		projectPolicy
+
 		DisplayName *string `json:"display_name"`
 		Description *string `json:"description"`
-		projectPolicy
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid request body")

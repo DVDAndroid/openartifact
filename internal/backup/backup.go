@@ -2125,7 +2125,8 @@ func (e *Engine) restoreBundlePromotions(ctx context.Context, r io.Reader, st *r
 // is "ProjectID" since projects replaced organizations, "OrgID" before.
 type archivedRepository struct {
 	models.Repository
-	LegacyOrgID *string `json:"OrgID"`
+
+	LegacyOrgID *string `json:"OrgID"` //nolint:tagliatelle // key of archives written before projects
 }
 
 func (e *Engine) restoreProjects(ctx context.Context, r io.Reader, st *restoreState) error {
@@ -2143,6 +2144,7 @@ func (e *Engine) restoreProjects(ctx context.Context, r io.Reader, st *restoreSt
 // policy and with the organization-wide member_role.
 type legacyOrganization struct {
 	models.Project
+
 	MemberRole string
 }
 

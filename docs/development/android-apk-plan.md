@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Supporto Android APK: piano
 
-Stato: **fase 0 e backend della fase 1 completati; frontend, bundle, CLI e indice F-Droid da fare.** Questa è una pagina di lavoro. Quando una fase è completata, il contenuto passa in `docs/formats/android.md` e questa pagina si accorcia.
+Stato: **fase 0, backend della fase 1 e frontend della fase 2 completati; confronto/diff, bundle, CLI e indice F-Droid da fare.** Questa è una pagina di lavoro. Quando una fase è completata, il contenuto passa in `docs/formats/android.md` e questa pagina si accorcia.
 
 ### Stato dell'implementazione
 
@@ -17,6 +17,7 @@ Fatto e verificato (test di integrazione su Postgres 18; upload di 7 APK reali d
 - `internal/android`: upload (con `original` e `parent`), inspect, download, `latest.apk`/`latest.json`/`index.json`, app e versioni, icone, file collegati, chiavi note con policy per app, tag, note.
 - Punti di contatto (un commit `seam(android):` ciascuno): `blobRefSpecs`, frammento OpenAPI, `validFormats`, `repoDataSegments`, `main.go`.
 - `docs/formats/android.md`.
+- Frontend (fase 2) in `web/src/features/android/`: pannello Apps con ricerca, filtri e tag, upload con anteprima da `inspect`, pagina app con riquadro chiavi, note e versioni, pagina versione a tab (panoramica con scheda Firma, icone e titoli, manifest, firma, librerie native, dipendenze, provenienza, file), pagina Chiavi; test in `__tests__/`. Verificato su un'istanza reale in tema chiaro e scuro. Punti di contatto: `formats.ts`, `en.ts`, `router/index.ts`, `RepoDetailPage.vue`, `RepoHeader.vue`, `installCommands.ts` + `clientsetup.go`, e `android` nell'enum `format` di `openapi.json` (serve ai tipi generati).
 
 Deviazioni dal piano:
 
@@ -25,7 +26,8 @@ Deviazioni dal piano:
 - **Download a nome esatto**: `<package>-<versionCode>-<8 hex del firmatario>.apk`; un nome che non coincide dà 404, mai il file di un'altra chiave.
 - **Avvisi sul firmatario**: il primo `original` di un'app non avvisa; una chiave nuova per un'app già firmata sì (vedi `internal/android/policy.go`).
 - I file Go non devono finire in `_android.go`: Go lo tratta come vincolo `GOOS=android` e il file non compila su Linux.
-- Un'importazione da URL (`POST import`) e `GET diff` non ci sono ancora.
+- Un'importazione da URL (`POST import`) e `GET diff` non ci sono ancora; nella UI mancano quindi il confronto (§11.5) e "importa da URL".
+- Frontend: niente azioni di gruppo (tag/elimina su più app: non c'è un endpoint), niente QR dell'URL di download, niente voci della command palette; i tag-chip filtrano sui tag dell'app, non su quelli delle versioni. L'upload accetta solo `.apk` finché il backend non legge i bundle.
 
 ## 1. Obiettivo e caso d'uso
 

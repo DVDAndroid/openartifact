@@ -137,6 +137,14 @@ Under `HOST/api/v1/repositories/REPO/apks`, authorized with the repository's own
 
 `PUT .../meta` replaces only the fields sent; `tags` replaces the whole list.
 
+## Web interface
+
+An android repository replaces the generic package list with its own pages:
+
+- **Packages** lists the apps with icon, latest version, origins, the key of the latest file and tags; search, origin filter, sort and tag chips narrow it. **Upload APK** analyses each file first (`POST .../apks/inspect`), shows the signer, SDK levels and warnings, and asks for the origin, the original of a patched file, tags and notes before storing it.
+- **Signing keys** (`?tab=signers`) registers keys by fingerprint, `keytool -list -v` output or a PEM certificate. Keystores and private keys are refused.
+- The app page (`/repos/REPO/packages/android/PACKAGE`) shows the keys the app is signed with, notes, tags, the signer policy and every version. The selected version (`?v=ID`) has tabs (`?tab=`): overview with the signature card, icons and titles, manifest, signature, native libraries, dependencies, provenance and zip entries.
+
 ## Behaviour that differs from other formats
 
 - Deletes are permanent: the version, its icons and attached files go, and a blob is removed from storage once nothing else references it. There is no trash for android yet. Deleting an original leaves its patched copies, with their `parent_id` cleared.

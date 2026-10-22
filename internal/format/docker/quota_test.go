@@ -148,14 +148,14 @@ func imageManifest(t *testing.T, config []byte, layers ...[]byte) string {
 	t.Helper()
 
 	type desc struct {
-		MediaType string `json:"mediaType"`
+		MediaType string `json:"mediaType"` //nolint:tagliatelle // OCI wire format
 		Digest    string `json:"digest"`
 		Size      int    `json:"size"`
 	}
 
 	m := struct {
-		SchemaVersion int    `json:"schemaVersion"`
-		MediaType     string `json:"mediaType"`
+		SchemaVersion int    `json:"schemaVersion"` //nolint:tagliatelle // OCI wire format
+		MediaType     string `json:"mediaType"`     //nolint:tagliatelle // OCI wire format
 		Config        desc   `json:"config"`
 		Layers        []desc `json:"layers"`
 	}{

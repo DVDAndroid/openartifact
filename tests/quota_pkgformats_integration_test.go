@@ -61,12 +61,12 @@ type qpfFormat struct {
 	kind  models.TrashKind
 }
 
-func qpfMount(register func(chi.Router, *database.PostgresDB, storage.BlobStore, *testing.T)) func(*testing.T, *database.PostgresDB, storage.BlobStore) http.Handler {
+func qpfMount(register func(*testing.T, chi.Router, *database.PostgresDB, storage.BlobStore)) func(*testing.T, *database.PostgresDB, storage.BlobStore) http.Handler {
 	return func(t *testing.T, pg *database.PostgresDB, bs storage.BlobStore) http.Handler {
 		t.Helper()
 
 		router := chi.NewRouter()
-		register(router, pg, bs, t)
+		register(t, router, pg, bs)
 
 		return router
 	}
@@ -209,7 +209,9 @@ func qpfFormats() []qpfFormat {
 	return []qpfFormat{
 		{
 			format: "pypi",
-			mount: qpfMount(func(r chi.Router, pg *database.PostgresDB, bs storage.BlobStore, t *testing.T) {
+			mount: qpfMount(func(t *testing.T, r chi.Router, pg *database.PostgresDB, bs storage.BlobStore) {
+				t.Helper()
+
 				r.Route("/repos/{name}", formatpypi.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes)
 			}),
 			upload: qpfPyPIUpload,
@@ -220,7 +222,9 @@ func qpfFormats() []qpfFormat {
 		},
 		{
 			format: "nuget",
-			mount: qpfMount(func(r chi.Router, pg *database.PostgresDB, bs storage.BlobStore, t *testing.T) {
+			mount: qpfMount(func(t *testing.T, r chi.Router, pg *database.PostgresDB, bs storage.BlobStore) {
+				t.Helper()
+
 				r.Route("/repos/{name}", formatnuget.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes)
 			}),
 			upload: qpfNuGetUpload,
@@ -231,7 +235,9 @@ func qpfFormats() []qpfFormat {
 		},
 		{
 			format: "go",
-			mount: qpfMount(func(r chi.Router, pg *database.PostgresDB, bs storage.BlobStore, t *testing.T) {
+			mount: qpfMount(func(t *testing.T, r chi.Router, pg *database.PostgresDB, bs storage.BlobStore) {
+				t.Helper()
+
 				h := formatgomod.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost")
 				r.Route("/repos/{name}", func(sub chi.Router) {
 					h.RegisterRepoRoutes(sub)
@@ -245,7 +251,9 @@ func qpfFormats() []qpfFormat {
 		},
 		{
 			format: "cargo",
-			mount: qpfMount(func(r chi.Router, pg *database.PostgresDB, bs storage.BlobStore, t *testing.T) {
+			mount: qpfMount(func(t *testing.T, r chi.Router, pg *database.PostgresDB, bs storage.BlobStore) {
+				t.Helper()
+
 				r.Route("/repos/{name}", formatcargo.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes)
 			}),
 			upload:          qpfCargoUpload,
@@ -316,22 +324,24 @@ func (e *qrEnv) purgeAll(f qpfFormat) {
 		e.t.Fatalf("list %s rows: %v", f.table, err)
 	}
 
+	defer func() { _ = rows.Close() }()
+
 	var ids []string
 
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-
 			e.t.Fatalf("scan: %v", err)
 		}
 
 		ids = append(ids, id)
 	}
 
-	if err := rows.Close(); err != nil || rows.Err() != nil {
-		e.t.Fatalf("rows: %v %v", err, rows.Err())
+	if err := rows.Err(); err != nil {
+		e.t.Fatalf("rows: %v", err)
 	}
+
+	_ = rows.Close()
 
 	e.pg.SetTrashRetentionDays(7)
 	e.t.Cleanup(func() { e.pg.SetTrashRetentionDays(0) })

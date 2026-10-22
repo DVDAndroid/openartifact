@@ -6,6 +6,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import type { CrumbSpec } from '../lib/crumbs'
 import type { TranslationKey } from '../i18n/en'
+import { androidRoutes } from '../features/android/routes'
 
 const reposTrail: CrumbSpec[] = [{ key: 'nav.repositories', to: '/repos' }]
 const repoTrail: CrumbSpec[] = [...reposTrail, { param: 'name', to: '/repos/:name' }]
@@ -95,6 +96,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/RepoDetailPage.vue'),
     meta: { crumbs: repoTrail, requiresAuth: true },
   },
+  ...androidRoutes,
   {
     path: '/repos/:name/packages/:format/:pkg',
     name: 'package-detail',

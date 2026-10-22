@@ -10,7 +10,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
       :name="repoName"
       :repo="repo"
       :active="activeTab === defaultTab ? 'main' : (activeTab as RepoSection)"
-      :count="repo?.repo_type === 'group' ? members.length : totalPackages"
+      :count="repo?.repo_type === 'group' ? members.length : isAndroid ? androidTotal : totalPackages"
       :crumbs="crumbs"
     >
       <template v-if="repo" #actions>
@@ -137,6 +137,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             </table>
           </div>
         </section>
+      </div>
+      <div v-else-if="isAndroid && activeTab === 'signers'">
+        <AndroidSignersPanel :repo="repo.name" :can-write="androidCanWrite" />
+      </div>
+      <div v-else-if="isAndroid && activeTab === 'packages'">
+        <AndroidAppsPanel :repo="repo.name" :can-write="androidCanWrite" @loaded="(n: number) => (androidTotal = n)" />
       </div>
       <div v-else-if="activeTab === 'packages'">
         <p v-if="repo.repo_type === 'proxy' && packages.length > 0" class="mb-3 text-xs text-muted">
@@ -290,6 +296,8 @@ import PackageUploadZone from '../components/PackageUploadZone.vue'
 import Pagination from '../components/Pagination.vue'
 import RepoDeleteDialog from '../components/RepoDeleteDialog.vue'
 import RepoCleanupTab from './RepoCleanupTab.vue'
+import AndroidAppsPanel from '../features/android/components/AndroidAppsPanel.vue'
+import AndroidSignersPanel from '../features/android/components/AndroidSignersPanel.vue'
 import RepoSettingsTab from './RepoSettingsTab.vue'
 import { useSessionStore } from '../stores/session'
 import { t } from '../i18n/en'
@@ -324,6 +332,10 @@ const membersError = ref('')
 const repoName = computed(() => route.params.name as string)
 const isProxy = computed(() => repo.value?.repo_type === 'proxy')
 const canDelete = computed(() => session.isAdmin)
+// Android repositories show their own Apps and Signing keys tabs.
+const isAndroid = computed(() => repo.value?.format === 'android')
+const androidTotal = ref(0)
+const androidCanWrite = computed(() => session.isAdmin || repo.value?.permissions?.write === true)
 // Web upload is implemented by the deb and rpm handlers only; other formats
 // are published with their native client tooling. Proxy and group
 // repositories are read-only.
@@ -400,8 +412,9 @@ const tabs = computed(() => {
     list.push({
       id: 'packages',
       label: repo.value?.repo_type === 'proxy' ? t('repoDetail.tab.cached') : t('repoDetail.tab.packages'),
-      count: totalPackages.value,
+      count: isAndroid.value ? androidTotal.value : totalPackages.value,
     })
+    if (isAndroid.value) list.push({ id: 'signers', label: t('android.signers.title') })
   }
   if (session.isAdmin) {
     list.push(

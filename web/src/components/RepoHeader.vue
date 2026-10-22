@@ -42,7 +42,7 @@ import type { Crumb } from '../lib/crumbs'
 import { useSessionStore } from '../stores/session'
 import { t } from '../i18n/en'
 
-export type RepoSection = 'main' | 'browse' | 'graph' | 'trash' | 'configuration' | 'cleanup'
+export type RepoSection = 'main' | 'browse' | 'graph' | 'trash' | 'configuration' | 'cleanup' | 'signers'
 
 const props = defineProps<{
   name: string
@@ -66,7 +66,11 @@ const sections = computed(() => {
     : t('repoDetail.tab.packages')
   list.push({ id: 'main', label: mainLabel, to: base, count: props.count })
 
-  if (type !== 'group') {
+  // Android repositories list apps and signing keys instead of generic packages.
+  const android = props.repo?.format === 'android'
+  if (android) {
+    list.push({ id: 'signers', label: t('android.signers.title'), to: { path: base, query: { tab: 'signers' } } })
+  } else if (type !== 'group') {
     list.push(
       { id: 'browse', label: t('browser.title'), to: `${base}/browse` },
       { id: 'graph', label: t('graph.title'), to: `${base}/graph` },

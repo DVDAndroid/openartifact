@@ -11,6 +11,7 @@ import { enRepos } from './en.repos'
 import { enAdmin } from './en.admin'
 import { enAuth } from './en.auth'
 import { enProjects } from './en.projects'
+import { enAndroid } from '../features/android/en.android'
 
 const base = {
   // App / shell
@@ -413,7 +414,7 @@ const base = {
   'settings.tokens.expires': 'Expires',
 } as const
 
-const catalog = { ...base, ...enRepos, ...enAdmin, ...enAuth, ...enProjects } satisfies Record<string, string>
+const catalog = { ...base, ...enRepos, ...enAdmin, ...enAuth, ...enProjects, ...enAndroid } satisfies Record<string, string>
 
 export type TranslationKey = keyof typeof catalog
 

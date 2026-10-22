@@ -54,7 +54,7 @@ type AuditLog struct {
 	ID           string     `db:"id" json:"id"`
 	Action       string     `db:"action" json:"action"`
 	CreatedAt    *time.Time `db:"created_at" json:"created_at"`
-	OrgID        *string    `db:"org_id" json:"org_id"`
+	ProjectID    *string    `db:"project_id" json:"project_id"`
 	RepositoryID *string    `db:"repository_id" json:"repository_id"`
 	// FK to auth_users.
 	ActorID   *string `db:"actor_id" json:"actor_id"`
@@ -66,15 +66,15 @@ type AuditLog struct {
 	IpAddress    *netip.Addr     `db:"ip_address" json:"ip_address"`
 }
 
-// Org-scoped groups for organizing users and assigning permissions.
+// Groups for organizing users and assigning permissions.
 type AuthGroup struct {
 	ID          string    `db:"id" json:"id"`
 	Name        string    `db:"name" json:"name"`
 	Description *string   `db:"description" json:"description"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
-	// Organization this group belongs to. NULL = system-level group (pre-multitenancy).
-	OrgID *string `db:"org_id" json:"org_id"`
+	// Project this group belongs to. NULL = system-level group (pre-multitenancy).
+	ProjectID *string `db:"project_id" json:"project_id"`
 }
 
 // Consumed SAML assertion IDs (replay protection); rows are purgeable after expires_at
@@ -593,31 +593,6 @@ type NugetPackage struct {
 	DeletedBy     *string    `db:"deleted_by" json:"deleted_by"`
 }
 
-// Organizations for multi-tenancy isolation
-type Organization struct {
-	ID          string    `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`
-	DisplayName *string   `db:"display_name" json:"display_name"`
-	Description *string   `db:"description" json:"description"`
-	OwnerID     *string   `db:"owner_id" json:"owner_id"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
-	// URL-safe identifier for the organization, e.g. "my-org"
-	Slug string `db:"slug" json:"slug"`
-	// Access level (read, write, admin) every plain member of the organization gets on the organization's repositories. Owners and admins always get admin. Ignored for the built-in system organization.
-	MemberRole string `db:"member_role" json:"member_role"`
-}
-
-// Organization membership with roles (owner, admin, member)
-type OrganizationMember struct {
-	OrgID     string    `db:"org_id" json:"org_id"`
-	UserID    string    `db:"user_id" json:"user_id"`
-	Role      string    `db:"role" json:"role"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	// Auto-updated by trigger on every UPDATE.
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
-}
-
 // Pre-computed bsdiff patches between package versions for bandwidth-efficient updates
 type PackageDelta struct {
 	ID           string    `db:"id" json:"id"`
@@ -641,7 +616,7 @@ type PermissionAssignment struct {
 	CreatedAt          time.Time `db:"created_at" json:"created_at"`
 }
 
-// Org-scoped permission targets defining allowed actions on repositories. Each target belongs to exactly one organization.
+// Permission targets defining allowed actions on repositories. Each target belongs to exactly one project.
 type PermissionTarget struct {
 	ID               string    `db:"id" json:"id"`
 	Name             string    `db:"name" json:"name"`
@@ -650,8 +625,8 @@ type PermissionTarget struct {
 	Actions          []string  `db:"actions" json:"actions"`
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
-	// Organization this permission target belongs to. NOT NULL.
-	OrgID string `db:"org_id" json:"org_id"`
+	// Project this permission target belongs to. NOT NULL.
+	ProjectID string `db:"project_id" json:"project_id"`
 }
 
 // Presigned uploads awaiting their complete call; the object lives at the staging key staging/<id> in the blob store.
@@ -668,6 +643,50 @@ type PresignedUpload struct {
 	CompletingSince *time.Time `db:"completing_since" json:"completing_since"`
 	CompletedAt     *time.Time `db:"completed_at" json:"completed_at"`
 	ArtifactID      string     `db:"artifact_id" json:"artifact_id"`
+}
+
+// Projects (formerly organizations): own repositories; members hold a role on them
+type Project struct {
+	ID          string    `db:"id" json:"id"`
+	Name        string    `db:"name" json:"name"`
+	DisplayName *string   `db:"display_name" json:"display_name"`
+	Description *string   `db:"description" json:"description"`
+	OwnerID     *string   `db:"owner_id" json:"owner_id"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	// URL-safe identifier derived from the project name, e.g. "my-project"
+	Slug string `db:"slug" json:"slug"`
+	// Formats self-service repositories may use; NULL = every format.
+	AllowedFormats []string `db:"allowed_formats" json:"allowed_formats"`
+	// Repository types self-service repositories may use (hosted, proxy, group).
+	AllowedRepoTypes []string `db:"allowed_repo_types" json:"allowed_repo_types"`
+	// Self-service repository names must start with this prefix.
+	RepoNamePrefix string `db:"repo_name_prefix" json:"repo_name_prefix"`
+	// Whether project repositories may be made anonymously readable (admin opt-in).
+	AllowPublicRepos bool `db:"allow_public_repos" json:"allow_public_repos"`
+	// Maximum number of repositories in the project; 0 = unlimited.
+	MaxRepositories int32 `db:"max_repositories" json:"max_repositories"`
+	// Maximum lifetime of project tokens in days; 0 = no cap.
+	TokenMaxTtlDays int32 `db:"token_max_ttl_days" json:"token_max_ttl_days"`
+}
+
+// Groups attached to a project with a role (ownership stays personal).
+type ProjectGroup struct {
+	ProjectID string    `db:"project_id" json:"project_id"`
+	GroupID   string    `db:"group_id" json:"group_id"`
+	Role      string    `db:"role" json:"role"`
+	CreatedBy *string   `db:"created_by" json:"created_by"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
+
+// Project membership with roles (owner, maintainer, developer, viewer)
+type ProjectMember struct {
+	ProjectID string    `db:"project_id" json:"project_id"`
+	UserID    string    `db:"user_id" json:"user_id"`
+	Role      string    `db:"role" json:"role"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	// Auto-updated by trigger on every UPDATE.
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // Named, ordered promotion stage sequences reusable across bundles
@@ -797,8 +816,8 @@ type Repository struct {
 	CacheTtlSeconds         int32   `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32   `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool    `db:"blocked" json:"blocked"`
-	// Organization this repository belongs to. NOT NULL — all repos must be org-scoped.
-	OrgID           string `db:"org_id" json:"org_id"`
+	// Project this repository belongs to. NOT NULL; the system project means unassigned.
+	ProjectID       string `db:"project_id" json:"project_id"`
 	MaxStaleSeconds int32  `db:"max_stale_seconds" json:"max_stale_seconds"`
 	// Per-repository override of storage.presignDownloads: NULL inherits the global setting, true/false force redirect/streaming.
 	PresignDownloads *bool `db:"presign_downloads" json:"presign_downloads"`

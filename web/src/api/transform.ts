@@ -10,7 +10,7 @@
 
 /** Extract items from any envelope shape the backend returns */
 export function extractItems<T>(raw: Record<string, unknown>): T[] {
-  return (raw.items ?? raw.data ?? raw.keys ?? raw.repositories ?? raw.packages ?? raw.webhooks ?? raw.policies ?? raw.backups ?? raw.reports ?? raw.scans ?? raw.organizations ?? raw.members ?? raw.providers ?? []) as T[]
+  return (raw.items ?? raw.data ?? raw.keys ?? raw.repositories ?? raw.packages ?? raw.webhooks ?? raw.policies ?? raw.backups ?? raw.reports ?? raw.scans ?? raw.projects ?? raw.members ?? raw.providers ?? []) as T[]
 }
 
 /** Extract total from any envelope shape */

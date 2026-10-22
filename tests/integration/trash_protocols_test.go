@@ -123,7 +123,7 @@ func tprNewEnv(t *testing.T, name, format string) *tprEnv {
 	retention := tprRetentionDays
 	orgID := systemOrgID
 	repo := &models.Repository{
-		Name: name, Format: format, RepoType: "hosted", OrgID: &orgID, TrashRetentionDays: &retention,
+		Name: name, Format: format, RepoType: "hosted", ProjectID: &orgID, TrashRetentionDays: &retention,
 	}
 
 	if err := harness.Database.CreateRepository(t.Context(), repo); err != nil {

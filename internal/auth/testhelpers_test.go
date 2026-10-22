@@ -723,27 +723,27 @@ func (m *tokenMockDB) SearchByProperty(_ context.Context, _, _, _ string) ([]str
 }
 
 // Organization methods
-func (m *tokenMockDB) CreateOrganization(_ context.Context, _ *models.Organization) error { return nil }
-func (m *tokenMockDB) GetOrganization(_ context.Context, _ string) (*models.Organization, error) {
+func (m *tokenMockDB) CreateProject(_ context.Context, _ *models.Project) error { return nil }
+func (m *tokenMockDB) GetProject(_ context.Context, _ string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *tokenMockDB) GetOrganizationByName(_ context.Context, _ string) (*models.Organization, error) {
+func (m *tokenMockDB) GetProjectByName(_ context.Context, _ string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *tokenMockDB) UpdateOrganization(_ context.Context, _ *models.Organization) error { return nil }
-func (m *tokenMockDB) DeleteOrganization(_ context.Context, _ string) error               { return nil }
-func (m *tokenMockDB) ListOrganizations(_ context.Context, _ string) ([]*models.Organization, error) {
+func (m *tokenMockDB) UpdateProject(_ context.Context, _ *models.Project) error { return nil }
+func (m *tokenMockDB) DeleteProject(_ context.Context, _ string) error          { return nil }
+func (m *tokenMockDB) ListProjects(_ context.Context, _ string) ([]*models.Project, error) {
 	return nil, nil
 }
-func (m *tokenMockDB) AddOrgMember(_ context.Context, _, _, _ string) error { return nil }
-func (m *tokenMockDB) RemoveOrgMember(_ context.Context, _, _ string) error { return nil }
-func (m *tokenMockDB) ListOrgMembers(_ context.Context, _ string) ([]*models.OrgMember, error) {
+func (m *tokenMockDB) AddProjectMember(_ context.Context, _, _, _ string) error { return nil }
+func (m *tokenMockDB) RemoveProjectMember(_ context.Context, _, _ string) error { return nil }
+func (m *tokenMockDB) ListProjectMembers(_ context.Context, _ string) ([]*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *tokenMockDB) GetOrgMember(_ context.Context, _, _ string) (*models.OrgMember, error) {
+func (m *tokenMockDB) GetProjectMember(_ context.Context, _, _ string) (*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *tokenMockDB) UpdateOrgMemberRole(_ context.Context, _, _, _ string) error { return nil }
+func (m *tokenMockDB) UpdateProjectMemberRole(_ context.Context, _, _, _ string) error { return nil }
 
 // System settings methods
 func (m *tokenMockDB) GetSystemSetting(_ context.Context, _ string) (string, error) { return "", nil }

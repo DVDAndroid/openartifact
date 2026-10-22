@@ -298,7 +298,7 @@ func (s *bsrSide) createRepo(name, format, repoType string) *models.Repository {
 	s.t.Helper()
 
 	orgID := systemOrgID
-	repo := &models.Repository{Name: name, Format: format, RepoType: repoType, OrgID: &orgID}
+	repo := &models.Repository{Name: name, Format: format, RepoType: repoType, ProjectID: &orgID}
 
 	if err := s.pg.CreateRepository(s.t.Context(), repo); err != nil {
 		s.t.Fatalf("CreateRepository(%s): %v", name, err)

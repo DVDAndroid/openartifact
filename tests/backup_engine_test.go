@@ -217,3 +217,5 @@ func TestBackupEngine_RunRestore_InvalidVersion(t *testing.T) {
 		t.Fatal("expected error for unsupported version, got nil")
 	}
 }
+
+func (b *backupMockDB) ListAllProjects(context.Context) ([]*models.Project, error) { return nil, nil }

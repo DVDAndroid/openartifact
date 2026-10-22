@@ -38,7 +38,7 @@ function makeRouter() {
       { path: '/stats', name: 'stats', component: { template: '<div/>' } },
       { path: '/admin/users', name: 'admin-users', component: { template: '<div/>' } },
       { path: '/admin/groups', name: 'admin-groups', component: { template: '<div/>' } },
-      { path: '/admin/orgs', name: 'admin-orgs', component: { template: '<div/>' } },
+      { path: '/admin/projects', name: 'admin-projects', component: { template: '<div/>' } },
       { path: '/admin/permissions', name: 'admin-permissions', component: { template: '<div/>' } },
       { path: '/admin/sso', name: 'admin-sso', component: { template: '<div/>' } },
       { path: '/admin/gpg', name: 'admin-gpg', component: { template: '<div/>' } },

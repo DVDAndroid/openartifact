@@ -37,7 +37,7 @@ describe('route crumb trails', () => {
     ['/repos/demo/packages/npm/left-pad', ['Repositories', 'demo', 'left-pad']],
     ['/search', ['Search']],
     ['/admin/users', ['Administration', 'Users']],
-    ['/admin/orgs', ['Administration', 'Organizations']],
+    ['/admin/projects', ['Administration', 'Projects']],
     ['/admin/trash', ['Administration', 'Trash']],
     ['/admin/ai', ['Administration', 'AI settings']],
     ['/security/vulns', ['Security', 'Vulnerability scan']],

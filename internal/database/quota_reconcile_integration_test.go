@@ -33,7 +33,7 @@ func newQuotaSeeder(tb testing.TB, pg *PostgresDB, name, format string) *quotaSe
 
 	org := systemOrgID
 
-	repo := &models.Repository{Name: name, Format: format, RepoType: "hosted", OrgID: &org}
+	repo := &models.Repository{Name: name, Format: format, RepoType: "hosted", ProjectID: &org}
 	if err := pg.CreateRepository(context.Background(), repo); err != nil {
 		tb.Fatalf("CreateRepository(%s): %v", name, err)
 	}

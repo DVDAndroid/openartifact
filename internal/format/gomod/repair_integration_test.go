@@ -170,17 +170,17 @@ func (w *leakWorld) exec(q string, args ...any) {
 	}
 }
 
-func (w *leakWorld) repo(org, name string) string {
+func (w *leakWorld) repo(project, name string) string {
 	w.t.Helper()
 
-	var orgID string
+	var projectID string
 	if err := w.pg.GetDB().QueryRowContext(context.Background(),
-		`INSERT INTO organizations (name, slug) VALUES ($1, $1)
-		 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`, org).Scan(&orgID); err != nil {
-		w.t.Fatalf("insert org: %v", err)
+		`INSERT INTO projects (name, slug) VALUES ($1, $1)
+		 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`, project).Scan(&projectID); err != nil {
+		w.t.Fatalf("insert project: %v", err)
 	}
 
-	repo := &models.Repository{Name: name, Format: "go", RepoType: "hosted", OrgID: &orgID}
+	repo := &models.Repository{Name: name, Format: "go", RepoType: "hosted", ProjectID: &projectID}
 	if err := w.pg.CreateRepository(context.Background(), repo); err != nil {
 		w.t.Fatalf("CreateRepository: %v", err)
 	}

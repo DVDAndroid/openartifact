@@ -14,7 +14,7 @@ import (
 type AuditLog struct {
 	ID           string          `db:"id"`
 	Action       string          `db:"action"`
-	OrgID        *string         `db:"org_id"`
+	ProjectID    *string         `db:"project_id"`
 	RepositoryID *string         `db:"repository_id"`
 	ActorID      *string         `db:"actor_id"`
 	ActorType    *string         `db:"actor_type"`

@@ -148,9 +148,9 @@ export type Repository = {
      */
     updated_at?: string;
     /**
-     * Name of the organization that owns the repository (the built-in 'system' organization unless set at creation or moved). Members of any other organization get access to the repository according to their role; see docs/security/rbac.md.
+     * Name of the project that owns the repository (the built-in 'system' project unless set at creation or moved). Members of any other project get access to the repository according to their role; see docs/security/rbac.md.
      */
-    org?: string;
+    project?: string;
     /**
      * The caller's effective repository-scoped permissions. Only present in the single-repository GET (`/api/v1/repository/{name}`); global administrators have every flag set.
      */
@@ -395,30 +395,133 @@ export type SsoProvider = {
     updated_at?: string;
 };
 
-export type Organization = {
+export type Project = {
     id?: string;
     name?: string;
-    display_name?: string;
-    description?: string;
-    created_at?: string;
-    updated_at?: string;
-    /**
-     * Access level plain organization members get on every repository the organization owns: read, write (read+write) or admin (read+write+delete). Owners and admins of the organization always get admin. Never grants manage. Ignored for the built-in system organization. Default read.
-     */
-    member_role?: 'read' | 'write' | 'admin';
+    display_name?: string | null;
+    description?: string | null;
     owner_id?: string | null;
     /**
      * URL-safe unique identifier derived from the name: lowercased, runs of characters outside a-z0-9 collapsed to '-', at most 64 characters. A name or slug collision on create returns 409.
      */
     slug?: string;
+    /**
+     * Package formats repositories of this project may use. null allows every format.
+     */
+    allowed_formats?: Array<string> | null;
+    /**
+     * Repository types allowed in this project.
+     */
+    allowed_repo_types?: Array<'hosted' | 'proxy' | 'group'>;
+    /**
+     * Prefix every repository name in this project must start with. Empty means no prefix is required.
+     */
+    repo_name_prefix?: string;
+    /**
+     * Whether repositories of this project may be public.
+     */
+    allow_public_repos?: boolean;
+    /**
+     * Maximum number of repositories the project may own. 0 means unlimited.
+     */
+    max_repositories?: number;
+    /**
+     * Maximum lifetime in days of tokens scoped to this project. 0 means no cap.
+     */
+    token_max_ttl_days?: number;
+    created_at?: string;
+    updated_at?: string;
 };
 
-export type OrgMember = {
+export type ProjectMember = {
     id?: string;
-    org_id?: string;
+    project_id?: string;
     user_id?: string;
-    role?: string;
+    role?: 'owner' | 'maintainer' | 'developer' | 'viewer';
     created_at?: string;
+};
+
+export type ProjectGroup = {
+    project_id?: string;
+    group_id?: string;
+    group_name?: string;
+    role?: 'viewer' | 'developer' | 'maintainer';
+    created_at?: string;
+};
+
+export type ProjectCreateRequest = {
+    name: string;
+    display_name?: string;
+    description?: string;
+    /**
+     * Package formats repositories of this project may use. null allows every format.
+     */
+    allowed_formats?: Array<string> | null;
+    /**
+     * Repository types allowed in this project.
+     */
+    allowed_repo_types?: Array<'hosted' | 'proxy' | 'group'>;
+    /**
+     * Prefix every repository name in this project must start with. Empty means no prefix is required.
+     */
+    repo_name_prefix?: string;
+    /**
+     * Whether repositories of this project may be public.
+     */
+    allow_public_repos?: boolean;
+    /**
+     * Maximum number of repositories the project may own. 0 means unlimited.
+     */
+    max_repositories?: number;
+    /**
+     * Maximum lifetime in days of tokens scoped to this project. 0 means no cap.
+     */
+    token_max_ttl_days?: number;
+};
+
+/**
+ * Partial update: omitted fields stay unchanged.
+ */
+export type ProjectUpdateRequest = {
+    display_name?: string;
+    description?: string;
+    /**
+     * Package formats repositories of this project may use. null allows every format.
+     */
+    allowed_formats?: Array<string> | null;
+    /**
+     * Repository types allowed in this project.
+     */
+    allowed_repo_types?: Array<'hosted' | 'proxy' | 'group'>;
+    /**
+     * Prefix every repository name in this project must start with. Empty means no prefix is required.
+     */
+    repo_name_prefix?: string;
+    /**
+     * Whether repositories of this project may be public.
+     */
+    allow_public_repos?: boolean;
+    /**
+     * Maximum number of repositories the project may own. 0 means unlimited.
+     */
+    max_repositories?: number;
+    /**
+     * Maximum lifetime in days of tokens scoped to this project. 0 means no cap.
+     */
+    token_max_ttl_days?: number;
+};
+
+export type ProjectMemberCreateRequest = {
+    user_id: string;
+    role?: 'owner' | 'maintainer' | 'developer' | 'viewer';
+};
+
+export type ProjectMemberUpdateRequest = {
+    role: 'owner' | 'maintainer' | 'developer' | 'viewer';
+};
+
+export type ProjectGroupUpdateRequest = {
+    role: 'viewer' | 'developer' | 'maintainer';
 };
 
 export type SbomReport = {
@@ -1125,9 +1228,9 @@ export type PostApiV1RepositoriesData = {
          */
         member_repos?: Array<string>;
         /**
-         * Name of the owning organization. Defaults to the built-in system organization, whose membership grants nothing. Unknown organization: 404.
+         * Name of the owning project. Defaults to the built-in system project, whose membership grants nothing. Unknown project: 404.
          */
-        org?: string;
+        project?: string;
         /**
          * Per-repository override of storage.presignDownloads: true always redirects eligible blob downloads to a presigned object-store URL, false always streams, null inherits the global setting. Metadata and manifests are never redirected.
          */
@@ -3730,243 +3833,333 @@ export type PostApiV1AdminSsoProvidersBySlugTestResponses = {
 
 export type PostApiV1AdminSsoProvidersBySlugTestResponse = PostApiV1AdminSsoProvidersBySlugTestResponses[keyof PostApiV1AdminSsoProvidersBySlugTestResponses];
 
-export type GetApiV1OrgsData = {
+export type GetApiV1ProjectsData = {
     body?: never;
     path?: never;
-    query?: never;
-    url: '/api/v1/orgs';
+    query?: {
+        /**
+         * List every project instead of only the caller's own. Global administrators only.
+         */
+        all?: boolean;
+    };
+    url: '/api/v1/projects';
 };
 
-export type GetApiV1OrgsResponses = {
+export type GetApiV1ProjectsResponses = {
     /**
-     * List of organizations
+     * List of projects
      */
     200: {
-        organizations?: Array<Organization>;
+        projects?: Array<Project>;
     };
 };
 
-export type GetApiV1OrgsResponse = GetApiV1OrgsResponses[keyof GetApiV1OrgsResponses];
+export type GetApiV1ProjectsResponse = GetApiV1ProjectsResponses[keyof GetApiV1ProjectsResponses];
 
-export type PostApiV1OrgsData = {
-    body: {
-        name: string;
-        display_name?: string;
-        description?: string;
-        /**
-         * Access level plain organization members get on every repository the organization owns: read, write (read+write) or admin (read+write+delete). Owners and admins of the organization always get admin. Never grants manage. Ignored for the built-in system organization. Default read.
-         */
-        member_role?: 'read' | 'write' | 'admin';
-    };
+export type PostApiV1ProjectsData = {
+    body: ProjectCreateRequest;
     path?: never;
     query?: never;
-    url: '/api/v1/orgs';
+    url: '/api/v1/projects';
 };
 
-export type PostApiV1OrgsErrors = {
+export type PostApiV1ProjectsErrors = {
     /**
-     * Invalid name, slug or member_role
+     * Invalid name, slug or policy field
      */
     400: unknown;
     /**
-     * Organization name or slug already taken
+     * Project name or slug already taken
      */
     409: unknown;
 };
 
-export type PostApiV1OrgsResponses = {
+export type PostApiV1ProjectsResponses = {
     /**
-     * Organization created
+     * Project created
      */
-    201: Organization;
+    201: Project;
 };
 
-export type PostApiV1OrgsResponse = PostApiV1OrgsResponses[keyof PostApiV1OrgsResponses];
+export type PostApiV1ProjectsResponse = PostApiV1ProjectsResponses[keyof PostApiV1ProjectsResponses];
 
-export type DeleteApiV1OrgsByOrgData = {
+export type DeleteApiV1ProjectsByProjectData = {
     body?: never;
     path: {
-        org: string;
+        project: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}';
+    url: '/api/v1/projects/{project}';
 };
 
-export type DeleteApiV1OrgsByOrgErrors = {
+export type DeleteApiV1ProjectsByProjectErrors = {
     /**
-     * Organization not found
+     * Project not found
      */
     404: unknown;
+    /**
+     * Project still owns repositories
+     */
+    409: unknown;
 };
 
-export type DeleteApiV1OrgsByOrgResponses = {
+export type DeleteApiV1ProjectsByProjectResponses = {
     /**
-     * Organization deleted
+     * Project deleted
      */
     204: void;
 };
 
-export type DeleteApiV1OrgsByOrgResponse = DeleteApiV1OrgsByOrgResponses[keyof DeleteApiV1OrgsByOrgResponses];
+export type DeleteApiV1ProjectsByProjectResponse = DeleteApiV1ProjectsByProjectResponses[keyof DeleteApiV1ProjectsByProjectResponses];
 
-export type GetApiV1OrgsByOrgData = {
+export type GetApiV1ProjectsByProjectData = {
     body?: never;
     path: {
-        org: string;
+        project: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}';
+    url: '/api/v1/projects/{project}';
 };
 
-export type GetApiV1OrgsByOrgErrors = {
+export type GetApiV1ProjectsByProjectErrors = {
     /**
-     * Organization not found
+     * Project not found
      */
     404: unknown;
 };
 
-export type GetApiV1OrgsByOrgResponses = {
+export type GetApiV1ProjectsByProjectResponses = {
     /**
-     * Organization details
+     * Project details
      */
-    200: Organization;
+    200: Project;
 };
 
-export type GetApiV1OrgsByOrgResponse = GetApiV1OrgsByOrgResponses[keyof GetApiV1OrgsByOrgResponses];
+export type GetApiV1ProjectsByProjectResponse = GetApiV1ProjectsByProjectResponses[keyof GetApiV1ProjectsByProjectResponses];
 
-export type PutApiV1OrgsByOrgData = {
-    body: {
-        display_name?: string;
-        description?: string;
-        /**
-         * Access level plain organization members get on every repository the organization owns: read, write (read+write) or admin (read+write+delete). Owners and admins of the organization always get admin. Never grants manage. Ignored for the built-in system organization. Default read.
-         */
-        member_role?: 'read' | 'write' | 'admin';
-    };
+export type PutApiV1ProjectsByProjectData = {
+    body: ProjectUpdateRequest;
     path: {
-        org: string;
+        project: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}';
+    url: '/api/v1/projects/{project}';
 };
 
-export type PutApiV1OrgsByOrgErrors = {
+export type PutApiV1ProjectsByProjectErrors = {
     /**
-     * Organization not found
+     * Invalid policy field
+     */
+    400: unknown;
+    /**
+     * Project not found
      */
     404: unknown;
 };
 
-export type PutApiV1OrgsByOrgResponses = {
+export type PutApiV1ProjectsByProjectResponses = {
     /**
-     * Organization updated
+     * Project updated
      */
-    200: Organization;
+    200: Project;
 };
 
-export type PutApiV1OrgsByOrgResponse = PutApiV1OrgsByOrgResponses[keyof PutApiV1OrgsByOrgResponses];
+export type PutApiV1ProjectsByProjectResponse = PutApiV1ProjectsByProjectResponses[keyof PutApiV1ProjectsByProjectResponses];
 
-export type GetApiV1OrgsByOrgMembersData = {
+export type GetApiV1ProjectsByProjectMembersData = {
     body?: never;
     path: {
-        org: string;
+        project: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}/members';
+    url: '/api/v1/projects/{project}/members';
 };
 
-export type GetApiV1OrgsByOrgMembersErrors = {
+export type GetApiV1ProjectsByProjectMembersErrors = {
     /**
-     * Organization not found
+     * Project not found
      */
     404: unknown;
 };
 
-export type GetApiV1OrgsByOrgMembersResponses = {
+export type GetApiV1ProjectsByProjectMembersResponses = {
     /**
-     * List of org members
+     * List of project members
      */
-    200: Array<OrgMember>;
+    200: {
+        members?: Array<ProjectMember>;
+    };
 };
 
-export type GetApiV1OrgsByOrgMembersResponse = GetApiV1OrgsByOrgMembersResponses[keyof GetApiV1OrgsByOrgMembersResponses];
+export type GetApiV1ProjectsByProjectMembersResponse = GetApiV1ProjectsByProjectMembersResponses[keyof GetApiV1ProjectsByProjectMembersResponses];
 
-export type PostApiV1OrgsByOrgMembersData = {
-    body: {
-        user_id: string;
-        role?: string;
-    };
+export type PostApiV1ProjectsByProjectMembersData = {
+    body: ProjectMemberCreateRequest;
     path: {
-        org: string;
+        project: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}/members';
+    url: '/api/v1/projects/{project}/members';
 };
 
-export type PostApiV1OrgsByOrgMembersErrors = {
+export type PostApiV1ProjectsByProjectMembersErrors = {
     /**
-     * Organization or user not found
+     * Invalid role
+     */
+    400: unknown;
+    /**
+     * Project or user not found
      */
     404: unknown;
 };
 
-export type PostApiV1OrgsByOrgMembersResponses = {
+export type PostApiV1ProjectsByProjectMembersResponses = {
     /**
      * Member added
      */
-    201: unknown;
+    201: ProjectMember;
 };
 
-export type DeleteApiV1OrgsByOrgMembersByUserIdData = {
+export type PostApiV1ProjectsByProjectMembersResponse = PostApiV1ProjectsByProjectMembersResponses[keyof PostApiV1ProjectsByProjectMembersResponses];
+
+export type DeleteApiV1ProjectsByProjectMembersByUserIdData = {
     body?: never;
     path: {
-        org: string;
+        project: string;
         user_id: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}/members/{user_id}';
+    url: '/api/v1/projects/{project}/members/{user_id}';
 };
 
-export type DeleteApiV1OrgsByOrgMembersByUserIdErrors = {
+export type DeleteApiV1ProjectsByProjectMembersByUserIdErrors = {
     /**
      * Member not found
      */
     404: unknown;
 };
 
-export type DeleteApiV1OrgsByOrgMembersByUserIdResponses = {
+export type DeleteApiV1ProjectsByProjectMembersByUserIdResponses = {
     /**
      * Member removed
      */
     204: void;
 };
 
-export type DeleteApiV1OrgsByOrgMembersByUserIdResponse = DeleteApiV1OrgsByOrgMembersByUserIdResponses[keyof DeleteApiV1OrgsByOrgMembersByUserIdResponses];
+export type DeleteApiV1ProjectsByProjectMembersByUserIdResponse = DeleteApiV1ProjectsByProjectMembersByUserIdResponses[keyof DeleteApiV1ProjectsByProjectMembersByUserIdResponses];
 
-export type PutApiV1OrgsByOrgMembersByUserIdData = {
-    body: {
-        role: string;
-    };
+export type PutApiV1ProjectsByProjectMembersByUserIdData = {
+    body: ProjectMemberUpdateRequest;
     path: {
-        org: string;
+        project: string;
         user_id: string;
     };
     query?: never;
-    url: '/api/v1/orgs/{org}/members/{user_id}';
+    url: '/api/v1/projects/{project}/members/{user_id}';
 };
 
-export type PutApiV1OrgsByOrgMembersByUserIdErrors = {
+export type PutApiV1ProjectsByProjectMembersByUserIdErrors = {
+    /**
+     * Invalid role
+     */
+    400: unknown;
     /**
      * Member not found
      */
     404: unknown;
 };
 
-export type PutApiV1OrgsByOrgMembersByUserIdResponses = {
+export type PutApiV1ProjectsByProjectMembersByUserIdResponses = {
     /**
      * Member updated
      */
-    200: unknown;
+    200: ProjectMember;
 };
+
+export type PutApiV1ProjectsByProjectMembersByUserIdResponse = PutApiV1ProjectsByProjectMembersByUserIdResponses[keyof PutApiV1ProjectsByProjectMembersByUserIdResponses];
+
+export type GetApiV1ProjectsByProjectGroupsData = {
+    body?: never;
+    path: {
+        project: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{project}/groups';
+};
+
+export type GetApiV1ProjectsByProjectGroupsErrors = {
+    /**
+     * Project not found
+     */
+    404: unknown;
+};
+
+export type GetApiV1ProjectsByProjectGroupsResponses = {
+    /**
+     * List of project groups
+     */
+    200: {
+        groups?: Array<ProjectGroup>;
+    };
+};
+
+export type GetApiV1ProjectsByProjectGroupsResponse = GetApiV1ProjectsByProjectGroupsResponses[keyof GetApiV1ProjectsByProjectGroupsResponses];
+
+export type DeleteApiV1ProjectsByProjectGroupsByGroupIdData = {
+    body?: never;
+    path: {
+        project: string;
+        group_id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{project}/groups/{group_id}';
+};
+
+export type DeleteApiV1ProjectsByProjectGroupsByGroupIdErrors = {
+    /**
+     * Group not attached
+     */
+    404: unknown;
+};
+
+export type DeleteApiV1ProjectsByProjectGroupsByGroupIdResponses = {
+    /**
+     * Group detached
+     */
+    204: void;
+};
+
+export type DeleteApiV1ProjectsByProjectGroupsByGroupIdResponse = DeleteApiV1ProjectsByProjectGroupsByGroupIdResponses[keyof DeleteApiV1ProjectsByProjectGroupsByGroupIdResponses];
+
+export type PutApiV1ProjectsByProjectGroupsByGroupIdData = {
+    body: ProjectGroupUpdateRequest;
+    path: {
+        project: string;
+        group_id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{project}/groups/{group_id}';
+};
+
+export type PutApiV1ProjectsByProjectGroupsByGroupIdErrors = {
+    /**
+     * Invalid role
+     */
+    400: unknown;
+    /**
+     * Project or group not found
+     */
+    404: unknown;
+};
+
+export type PutApiV1ProjectsByProjectGroupsByGroupIdResponses = {
+    /**
+     * Group attached or updated
+     */
+    200: ProjectGroup;
+};
+
+export type PutApiV1ProjectsByProjectGroupsByGroupIdResponse = PutApiV1ProjectsByProjectGroupsByGroupIdResponses[keyof PutApiV1ProjectsByProjectGroupsByGroupIdResponses];
 
 export type GetApiV1OpenapiJsonData = {
     body?: never;
@@ -4161,9 +4354,9 @@ export type PatchApiV1RepositoryByNameData = {
         blocked?: boolean;
         member_repos?: Array<string>;
         /**
-         * Move the repository to the named organization (global admin only; unknown organization: 404). Access of the old and new organization's members changes immediately.
+         * Move the repository to the named project (global admin only; unknown project: 404). Access of the old and new project's members changes immediately.
          */
-        org?: string;
+        project?: string;
         /**
          * Per-repository override of storage.presignDownloads: true always redirects eligible blob downloads to a presigned object-store URL, false always streams, null inherits the global setting. Metadata and manifests are never redirected. Omit to leave unchanged; send null to inherit.
          */

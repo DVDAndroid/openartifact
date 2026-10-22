@@ -138,7 +138,7 @@ func (s *purgeSeed) repo(name string) string {
 
 	org := trashTestOrgID
 
-	repo := &models.Repository{Name: name, Format: "maven", RepoType: "hosted", OrgID: &org}
+	repo := &models.Repository{Name: name, Format: "maven", RepoType: "hosted", ProjectID: &org}
 	if err := s.pg.CreateRepository(context.Background(), repo); err != nil {
 		s.t.Fatalf("CreateRepository(%s): %v", name, err)
 	}

@@ -69,9 +69,9 @@ func (e *cleanupQuotaEnv) queryID(query string, args ...any) string {
 func (e *cleanupQuotaEnv) repo(format string) string {
 	e.t.Helper()
 
-	org := models.SystemOrgID
+	org := models.SystemProjectID
 
-	repo := &models.Repository{Name: format + "-repo", Format: format, RepoType: "hosted", OrgID: &org}
+	repo := &models.Repository{Name: format + "-repo", Format: format, RepoType: "hosted", ProjectID: &org}
 	if err := e.pg.CreateRepository(context.Background(), repo); err != nil {
 		e.t.Fatalf("CreateRepository: %v", err)
 	}

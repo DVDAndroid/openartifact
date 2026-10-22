@@ -33,7 +33,7 @@ func (q *Queries) CountRepositoriesByFormat(ctx context.Context, format string) 
 }
 
 const createRepository = `-- name: CreateRepository :one
-INSERT INTO repositories (id, name, format, description, repo_type, upstream_url, upstream_username, upstream_password_enc, cache_ttl_seconds, negative_cache_ttl_seconds, blocked, org_id)
+INSERT INTO repositories (id, name, format, description, repo_type, upstream_url, upstream_username, upstream_password_enc, cache_ttl_seconds, negative_cache_ttl_seconds, blocked, project_id)
 VALUES (gen_random_uuid(), $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11)
 RETURNING id, created_at, updated_at
 `
@@ -49,7 +49,7 @@ type CreateRepositoryParams struct {
 	CacheTtlSeconds         int32       `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32       `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool        `db:"blocked" json:"blocked"`
-	OrgID                   string      `db:"org_id" json:"org_id"`
+	ProjectID               string      `db:"project_id" json:"project_id"`
 }
 
 type CreateRepositoryRow struct {
@@ -70,7 +70,7 @@ func (q *Queries) CreateRepository(ctx context.Context, arg CreateRepositoryPara
 		arg.CacheTtlSeconds,
 		arg.NegativeCacheTtlSeconds,
 		arg.Blocked,
-		arg.OrgID,
+		arg.ProjectID,
 	)
 	var i CreateRepositoryRow
 	err := row.Scan(&i.ID, &i.CreatedAt, &i.UpdatedAt)
@@ -97,7 +97,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -116,7 +116,7 @@ type GetRepositoryByIDRow struct {
 	CacheTtlSeconds         int32     `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32     `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool      `db:"blocked" json:"blocked"`
-	OrgID                   string    `db:"org_id" json:"org_id"`
+	ProjectID               string    `db:"project_id" json:"project_id"`
 	CreatedAt               time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }
@@ -138,7 +138,7 @@ func (q *Queries) GetRepositoryByID(ctx context.Context, id string) (GetReposito
 		&i.CacheTtlSeconds,
 		&i.NegativeCacheTtlSeconds,
 		&i.Blocked,
-		&i.OrgID,
+		&i.ProjectID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -156,7 +156,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE name = $1 AND deleted_at IS NULL
 `
@@ -175,7 +175,7 @@ type GetRepositoryByNameRow struct {
 	CacheTtlSeconds         int32     `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32     `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool      `db:"blocked" json:"blocked"`
-	OrgID                   string    `db:"org_id" json:"org_id"`
+	ProjectID               string    `db:"project_id" json:"project_id"`
 	CreatedAt               time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }
@@ -197,7 +197,7 @@ func (q *Queries) GetRepositoryByName(ctx context.Context, name string) (GetRepo
 		&i.CacheTtlSeconds,
 		&i.NegativeCacheTtlSeconds,
 		&i.Blocked,
-		&i.OrgID,
+		&i.ProjectID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -215,7 +215,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC, id
@@ -241,7 +241,7 @@ type ListRepositoriesRow struct {
 	CacheTtlSeconds         int32     `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32     `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool      `db:"blocked" json:"blocked"`
-	OrgID                   string    `db:"org_id" json:"org_id"`
+	ProjectID               string    `db:"project_id" json:"project_id"`
 	CreatedAt               time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }
@@ -269,7 +269,7 @@ func (q *Queries) ListRepositories(ctx context.Context, arg ListRepositoriesPara
 			&i.CacheTtlSeconds,
 			&i.NegativeCacheTtlSeconds,
 			&i.Blocked,
-			&i.OrgID,
+			&i.ProjectID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -294,7 +294,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE format = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC, id
@@ -321,7 +321,7 @@ type ListRepositoriesByFormatRow struct {
 	CacheTtlSeconds         int32     `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32     `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool      `db:"blocked" json:"blocked"`
-	OrgID                   string    `db:"org_id" json:"org_id"`
+	ProjectID               string    `db:"project_id" json:"project_id"`
 	CreatedAt               time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }
@@ -349,7 +349,7 @@ func (q *Queries) ListRepositoriesByFormat(ctx context.Context, arg ListReposito
 			&i.CacheTtlSeconds,
 			&i.NegativeCacheTtlSeconds,
 			&i.Blocked,
-			&i.OrgID,
+			&i.ProjectID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -374,7 +374,7 @@ SET description = $1,
     cache_ttl_seconds = $7,
     negative_cache_ttl_seconds = $8,
     blocked = $9,
-    org_id = $10,
+    project_id = $10,
     updated_at = now()
 WHERE id = $11 AND deleted_at IS NULL
 `
@@ -389,7 +389,7 @@ type UpdateRepositoryParams struct {
 	CacheTtlSeconds         int32       `db:"cache_ttl_seconds" json:"cache_ttl_seconds"`
 	NegativeCacheTtlSeconds int32       `db:"negative_cache_ttl_seconds" json:"negative_cache_ttl_seconds"`
 	Blocked                 bool        `db:"blocked" json:"blocked"`
-	OrgID                   string      `db:"org_id" json:"org_id"`
+	ProjectID               string      `db:"project_id" json:"project_id"`
 	ID                      string      `db:"id" json:"id"`
 }
 
@@ -404,7 +404,7 @@ func (q *Queries) UpdateRepository(ctx context.Context, arg UpdateRepositoryPara
 		arg.CacheTtlSeconds,
 		arg.NegativeCacheTtlSeconds,
 		arg.Blocked,
-		arg.OrgID,
+		arg.ProjectID,
 		arg.ID,
 	)
 	return err

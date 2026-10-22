@@ -24,7 +24,7 @@ func scanPolicyRepo(t *testing.T, pg *database.PostgresDB, name string) *models.
 	t.Helper()
 
 	orgID := scanPolicyOrgID
-	repo := &models.Repository{Name: name, Format: "npm", RepoType: "hosted", OrgID: &orgID}
+	repo := &models.Repository{Name: name, Format: "npm", RepoType: "hosted", ProjectID: &orgID}
 
 	if err := pg.CreateRepository(context.Background(), repo); err != nil {
 		t.Fatalf("CreateRepository(%s): %v", name, err)

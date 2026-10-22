@@ -107,7 +107,7 @@ func newQuotaRepo(tb testing.TB, pg *PostgresDB, name string, maxBytes int64, ma
 	ctx := context.Background()
 	org := systemOrgID
 
-	repo := &models.Repository{Name: name, Format: "raw", RepoType: "hosted", OrgID: &org}
+	repo := &models.Repository{Name: name, Format: "raw", RepoType: "hosted", ProjectID: &org}
 	if err := pg.CreateRepository(ctx, repo); err != nil {
 		tb.Fatalf("CreateRepository: %v", err)
 	}

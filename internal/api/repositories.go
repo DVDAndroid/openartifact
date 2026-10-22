@@ -222,10 +222,10 @@ func (h *RepositoriesHandler) handleList(w http.ResponseWriter, r *http.Request)
 	}
 
 	filtered := make([]responses.RepositoryResponse, 0, len(repos))
-	orgNames := map[string]string{}
+	projectNames := map[string]string{}
 
 	for _, repo := range repos {
-		filtered = append(filtered, h.repositoryResponse(ctx, repo, orgNames))
+		filtered = append(filtered, h.repositoryResponse(ctx, repo, projectNames))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -295,56 +295,56 @@ func (h *RepositoriesHandler) repositoryPermissions(ctx context.Context, p auth.
 	return &perms, nil
 }
 
-// orgName resolves an organization ID to its name. memo caches lookups across
-// the repositories of one response. An unresolvable organization yields "".
-func (h *RepositoriesHandler) orgName(ctx context.Context, orgID *string, memo map[string]string) string {
-	if orgID == nil {
+// projectName resolves a project ID to its name. memo caches lookups across
+// the repositories of one response. An unresolvable project yields "".
+func (h *RepositoriesHandler) projectName(ctx context.Context, projectID *string, memo map[string]string) string {
+	if projectID == nil {
 		return ""
 	}
 
-	if name, ok := memo[*orgID]; ok {
+	if name, ok := memo[*projectID]; ok {
 		return name
 	}
 
-	org, err := h.db.GetOrganization(ctx, *orgID)
-	if err != nil || org == nil {
+	project, err := h.db.GetProject(ctx, *projectID)
+	if err != nil || project == nil {
 		if err != nil {
-			h.log.Errorw("resolve repository organization: db error", "org_id", *orgID, "error", err)
+			h.log.Errorw("resolve repository project: db error", "project_id", *projectID, "error", err)
 		}
 
 		return ""
 	}
 
-	memo[*orgID] = org.Name
+	memo[*projectID] = project.Name
 
-	return org.Name
+	return project.Name
 }
 
-// repositoryResponse is RepositoryToResponse plus the owning organization's name.
-func (h *RepositoriesHandler) repositoryResponse(ctx context.Context, repo *models.Repository, orgNames map[string]string) responses.RepositoryResponse {
+// repositoryResponse is RepositoryToResponse plus the owning project's name.
+func (h *RepositoriesHandler) repositoryResponse(ctx context.Context, repo *models.Repository, projectNames map[string]string) responses.RepositoryResponse {
 	resp := RepositoryToResponse(repo)
-	resp.Org = h.orgName(ctx, repo.OrgID, orgNames)
+	resp.Project = h.projectName(ctx, repo.ProjectID, projectNames)
 
 	return resp
 }
 
-// resolveOrg looks an organization up by name for a create/move request. It
+// resolveProject looks a project up by name for a create/move request. It
 // writes the error response (404 for an unknown name) and returns nil on failure.
-func (h *RepositoriesHandler) resolveOrg(ctx context.Context, w http.ResponseWriter, name string) *models.Organization {
-	org, err := h.db.GetOrganizationByName(ctx, name)
+func (h *RepositoriesHandler) resolveProject(ctx context.Context, w http.ResponseWriter, name string) *models.Project {
+	project, err := h.db.GetProjectByName(ctx, name)
 	if err != nil {
-		h.log.Errorw("resolve organization: db error", "error", err)
+		h.log.Errorw("resolve project: db error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "database error")
 
 		return nil
 	}
 
-	if org == nil {
-		writeError(w, http.StatusNotFound, "not_found", "organization not found")
+	if project == nil {
+		writeError(w, http.StatusNotFound, "not_found", "project not found")
 		return nil
 	}
 
-	return org
+	return project
 }
 
 // validateUpstreamURL rejects non-http(s) schemes and private/metadata hosts.
@@ -503,9 +503,9 @@ func (h *RepositoriesHandler) handleCreate(w http.ResponseWriter, r *http.Reques
 		MemberRepos             []string `json:"member_repos"`
 		// PresignDownloads overrides storage.presignDownloads (null/absent inherits).
 		PresignDownloads *bool `json:"presign_downloads"`
-		// Org is the owning organization's name; empty means the built-in
-		// system organization.
-		Org string `json:"org"`
+		// Project is the owning project's name; empty means the built-in
+		// system project.
+		Project string `json:"project"`
 		// TrashRetentionDays: null/absent = server default, 0 = no trash.
 		TrashRetentionDays *int `json:"trash_retention_days"`
 		ImmutableReleases  bool `json:"immutable_releases"`
@@ -638,19 +638,19 @@ func (h *RepositoriesHandler) handleCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	orgID := models.SystemOrgID
+	projectID := models.SystemProjectID
 
-	if body.Org != "" {
-		org := h.resolveOrg(r.Context(), w, body.Org)
-		if org == nil {
+	if body.Project != "" {
+		project := h.resolveProject(r.Context(), w, body.Project)
+		if project == nil {
 			return
 		}
 
-		orgID = org.ID
+		projectID = project.ID
 	}
 
 	now := time.Now()
-	repo.OrgID = &orgID
+	repo.ProjectID = &projectID
 	repo.PresignDownloads = body.PresignDownloads
 	repo.CreatedAt = now
 	repo.UpdatedAt = now
@@ -715,8 +715,8 @@ func (h *RepositoriesHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 		// PresignDownloads is tri-state: absent leaves the override unchanged,
 		// null clears it (inherit storage.presignDownloads), true/false set it.
 		PresignDownloads json.RawMessage `json:"presign_downloads"`
-		// Org moves the repository to the named organization.
-		Org *string `json:"org"`
+		// Project moves the repository to the named project.
+		Project *string `json:"project"`
 		// TrashRetentionDays: absent leaves it unchanged, null resets it to
 		// the server default, a number sets it (0 = no trash).
 		TrashRetentionDays nullableInt `json:"trash_retention_days"`
@@ -834,13 +834,13 @@ func (h *RepositoriesHandler) handleUpdate(w http.ResponseWriter, r *http.Reques
 		repo.PresignDownloads = override
 	}
 
-	if body.Org != nil {
-		org := h.resolveOrg(ctx, w, *body.Org)
-		if org == nil {
+	if body.Project != nil {
+		project := h.resolveProject(ctx, w, *body.Project)
+		if project == nil {
 			return
 		}
 
-		repo.OrgID = &org.ID
+		repo.ProjectID = &project.ID
 	}
 
 	var memberIDs []string

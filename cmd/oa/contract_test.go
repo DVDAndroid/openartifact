@@ -56,7 +56,7 @@ func realRouter() chi.Router {
 	api.NewAdminAuditHandler(nil, nil, nil).Register(r)
 	api.NewAdminStorageHandler(nil, nil, nil).Register(r)
 	api.NewAdminGPGHandler(nil, nil, nil).Register(r)
-	api.NewOrgsHandler(nil, nil).RegisterRoutes(r)
+	api.NewProjectsHandler(nil, nil, nil).RegisterRoutes(r)
 	api.NewRepositoriesHandler(nil, nil, nil).RegisterAuthed(r)
 	api.NewCleanupHandler(nil, nil, nil, nil).RegisterAuthed(r)
 	api.NewSBOMHandler(nil, nil, nil, nil, nil).RegisterAuthed(r)
@@ -537,30 +537,49 @@ func TestContractUserGroupOrgToken(t *testing.T) {
 			calls:   []call{{method: "POST", pattern: "/api/v1/groups/{id}/members/{userId}"}},
 		},
 		{
-			name:    "org list",
-			args:    []string{"org", "list"},
-			replies: map[string]reply{"GET /api/v1/orgs": ok(`{"organizations":[{"name":"acme","display_name":"Acme"}]}`)},
-			calls:   []call{{method: "GET", pattern: "/api/v1/orgs"}},
+			name:    "project list",
+			args:    []string{"project", "list"},
+			replies: map[string]reply{"GET /api/v1/projects": ok(`{"projects":[{"name":"acme","display_name":"Acme"}]}`)},
+			calls:   []call{{method: "GET", pattern: "/api/v1/projects"}},
 			out:     "Acme",
 		},
 		{
-			name:    "org create",
-			args:    []string{"org", "create", "acme", "--display-name", "Acme"},
-			replies: map[string]reply{"POST /api/v1/orgs": {status: 201, body: `{}`}},
-			calls:   []call{{method: "POST", pattern: "/api/v1/orgs", body: m{"name": "acme", "display_name": "Acme", "description": ""}}},
+			name:    "project create",
+			args:    []string{"project", "create", "acme", "--display-name", "Acme"},
+			replies: map[string]reply{"POST /api/v1/projects": {status: 201, body: `{}`}},
+			calls:   []call{{method: "POST", pattern: "/api/v1/projects", body: m{"name": "acme", "display_name": "Acme", "description": ""}}},
 		},
 		{
-			name:    "org members",
-			args:    []string{"org", "members", "acme"},
-			replies: map[string]reply{"GET /api/v1/orgs/{org}/members": ok(`{"members":[{"user_id":"u1","role":"owner"}]}`)},
-			calls:   []call{{method: "GET", pattern: "/api/v1/orgs/{org}/members"}},
+			name:    "project members",
+			args:    []string{"project", "members", "acme"},
+			replies: map[string]reply{"GET /api/v1/projects/{project}/members": ok(`{"members":[{"user_id":"u1","role":"owner"}]}`)},
+			calls:   []call{{method: "GET", pattern: "/api/v1/projects/{project}/members"}},
 			out:     "owner",
 		},
 		{
-			name:    "org add-member",
-			args:    []string{"org", "add-member", "acme", "u1", "--role", "owner"},
-			replies: map[string]reply{"POST /api/v1/orgs/{org}/members": {status: 201, body: `{}`}},
-			calls:   []call{{method: "POST", pattern: "/api/v1/orgs/{org}/members", body: m{"user_id": "u1", "role": "owner"}}},
+			name:    "project add-member",
+			args:    []string{"project", "add-member", "acme", "u1", "--role", "owner"},
+			replies: map[string]reply{"POST /api/v1/projects/{project}/members": {status: 201, body: `{}`}},
+			calls:   []call{{method: "POST", pattern: "/api/v1/projects/{project}/members", body: m{"user_id": "u1", "role": "owner"}}},
+		},
+		{
+			name:    "project groups",
+			args:    []string{"project", "groups", "acme"},
+			replies: map[string]reply{"GET /api/v1/projects/{project}/groups": ok(`{"groups":[{"group_id":"g1","group_name":"devs","role":"developer"}]}`)},
+			calls:   []call{{method: "GET", pattern: "/api/v1/projects/{project}/groups"}},
+			out:     "devs",
+		},
+		{
+			name:    "project add-group",
+			args:    []string{"project", "add-group", "acme", "g1", "--role", "developer"},
+			replies: map[string]reply{"PUT /api/v1/projects/{project}/groups/{group_id}": ok(`{}`)},
+			calls:   []call{{method: "PUT", pattern: "/api/v1/projects/{project}/groups/{group_id}", body: m{"role": "developer"}}},
+		},
+		{
+			name:    "project rm-group",
+			args:    []string{"project", "rm-group", "acme", "g1"},
+			replies: map[string]reply{"DELETE /api/v1/projects/{project}/groups/{group_id}": {status: 204}},
+			calls:   []call{{method: "DELETE", pattern: "/api/v1/projects/{project}/groups/{group_id}"}},
 		},
 		{
 			name:    "admin token list",

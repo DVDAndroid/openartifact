@@ -9,7 +9,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE name = $1 AND deleted_at IS NULL;
 
@@ -24,7 +24,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE id = $1 AND deleted_at IS NULL;
 
@@ -39,7 +39,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC, id
@@ -56,7 +56,7 @@ SELECT id, name, format, description,
        COALESCE(cache_ttl_seconds, 3600) AS cache_ttl_seconds,
        COALESCE(negative_cache_ttl_seconds, 60) AS negative_cache_ttl_seconds,
        COALESCE(blocked, false) AS blocked,
-       org_id, created_at, updated_at
+       project_id, created_at, updated_at
 FROM repositories
 WHERE format = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC, id
@@ -69,7 +69,7 @@ SELECT COUNT(*) FROM repositories WHERE deleted_at IS NULL;
 SELECT COUNT(*) FROM repositories WHERE format = $1 AND deleted_at IS NULL;
 
 -- name: CreateRepository :one
-INSERT INTO repositories (id, name, format, description, repo_type, upstream_url, upstream_username, upstream_password_enc, cache_ttl_seconds, negative_cache_ttl_seconds, blocked, org_id)
+INSERT INTO repositories (id, name, format, description, repo_type, upstream_url, upstream_username, upstream_password_enc, cache_ttl_seconds, negative_cache_ttl_seconds, blocked, project_id)
 VALUES (gen_random_uuid(), $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11)
 RETURNING id, created_at, updated_at;
 
@@ -84,7 +84,7 @@ SET description = $1,
     cache_ttl_seconds = $7,
     negative_cache_ttl_seconds = $8,
     blocked = $9,
-    org_id = $10,
+    project_id = $10,
     updated_at = now()
 WHERE id = $11 AND deleted_at IS NULL;
 

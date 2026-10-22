@@ -654,8 +654,7 @@ func run(args []string) error {
 
 	api.NewAdminAIHandler(db, log, evaluator).WithRuntime(aiWorker, envAI).Register(authedAPI)
 
-	orgsHandler := api.NewOrgsHandler(db, log)
-	orgsHandler.RegisterRoutes(authedAPI)
+	api.NewProjectsHandler(db, log, evaluator).RegisterRoutes(authedAPI)
 
 	searchHandler := search.NewHandler(db.GetDB(), evaluator, log)
 	authedAPI.Get("/api/v1/search", searchHandler.ServeHTTP)

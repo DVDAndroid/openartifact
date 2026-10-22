@@ -38,7 +38,7 @@ type AuditEvent struct {
 	RepositoryID *string
 	ResourceType *string
 	ResourceID   *string
-	OrgID        *string
+	ProjectID    *string
 	IPAddress    *string
 	Details      string // free-text; stored in details_json as {"message": "..."}
 }
@@ -100,7 +100,7 @@ func (l *Logger) run() {
 			ResourceType: event.ResourceType,
 			ResourceID:   event.ResourceID,
 			RepositoryID: event.RepositoryID,
-			OrgID:        event.OrgID,
+			ProjectID:    event.ProjectID,
 			IPAddress:    event.IPAddress,
 		}
 		if err := l.db.InsertAuditLog(context.Background(), entry); err != nil {

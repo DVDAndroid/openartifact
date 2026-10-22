@@ -96,7 +96,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
         <div id="sidebar-admin-links" v-show="adminOpen || collapsed">
           <SidebarLink to="/admin/users" :icon="UsersIcon" :label="t('nav.users')" :collapsed="collapsed" />
           <SidebarLink to="/admin/groups" :icon="UserGroupIcon" :label="t('nav.groups')" :collapsed="collapsed" />
-          <SidebarLink to="/admin/orgs" :icon="BuildingOfficeIcon" :label="t('shell.organizations')" :collapsed="collapsed" />
+          <SidebarLink to="/admin/projects" :icon="BuildingOfficeIcon" :label="t('shell.projects')" :collapsed="collapsed" />
           <SidebarLink to="/admin/permissions" :icon="ShieldCheckIcon" :label="t('nav.permissions')" :collapsed="collapsed" />
           <SidebarLink to="/admin/sso" :icon="KeyIcon" :label="t('nav.sso')" :collapsed="collapsed" />
           <SidebarLink to="/admin/gpg" :icon="LockClosedIcon" :label="t('nav.gpg')" :collapsed="collapsed" />

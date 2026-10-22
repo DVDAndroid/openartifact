@@ -37,7 +37,7 @@ Soft-deleted data ([trash](trash.md): trashed repositories and package rows) is 
 
 Tables exported:
 
-- Global: repositories, repository group members (member order is kept), users, groups, tokens, SSO providers, storage backend records, promotion pipelines, release bundles with their items and promotions, organizations (with their `member_role`) and members, webhooks. Repositories keep their organization on restore.
+- Global: repositories, repository group members (member order is kept), users, groups, tokens, SSO providers, storage backend records, promotion pipelines, release bundles with their items and promotions, projects (with their policy settings), members and group grants, webhooks. Repositories keep their project on restore. Archives from older versions with `organizations` and `organization_members` are still accepted.
 - Per format: Debian distributions, components and architectures with deb packages; rpm, Helm, PyPI, NuGet, Cargo, RubyGems, Conan, Ivy, sbt, raw, Docker (blobs, manifests, tags), npm (packages, versions, dist-tags), Maven, Conda and Go module records.
 - Per repository: cleanup policies, SBOM, license, secret and vulnerability scan results, AI analyses.
 
@@ -107,7 +107,7 @@ The UI restore dialog does the same and asks for a confirmation phrase. The uplo
 Behaviour:
 
 - The response only confirms the upload. The outcome is in the server log: `restore completed successfully`, or `restore completed with failures` with a count, or `restore failed`.
-- Records go through the normal create paths. IDs of repositories, users, Debian distributions and components, pipelines, bundles, organizations and npm packages are regenerated and rows that point at them are remapped. A name that already exists (a repository, or the bootstrap `admin` user of a fresh server) is skipped with a warning, and rows depending on a skipped parent are skipped too. Restore into an empty instance for a clean result.
+- Records go through the normal create paths. IDs of repositories, users, Debian distributions and components, pipelines, bundles, projects and npm packages are regenerated and rows that point at them are remapped. A name that already exists (a repository, or the bootstrap `admin` user of a fresh server) is skipped with a warning, and rows depending on a skipped parent are skipped too. Restore into an empty instance for a clean result.
 - Blobs are checked against the SHA-256 in their entry name, then written to the configured blob store.
 - When the restore finishes, the repositories' [storage quota](../repositories/cleanup-and-quotas.md#keeping-the-counters-correct) usage counters are recounted from the restored packages, so quotas set afterwards start from the real usage. Quota limits are not part of the archive.
 - Group repositories get their members back (remapped to the new repository ids). The generated metadata of hosted rpm, deb and maven repositories (repodata, `dists/`, `maven-metadata.xml`) is not in the archive; the restore queues its regeneration, so it is served shortly after the restore finishes.

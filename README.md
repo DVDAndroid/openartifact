@@ -59,7 +59,7 @@ Client URLs and setup per format: [docs/formats](docs/formats/README.md).
 ## Features
 
 - Native client protocols for 16 formats; hosted, proxy (with serve-stale) and group repositories
-- RBAC with users, groups, permission targets and API tokens; SSO via OIDC and SAML; organizations
+- RBAC with users, groups, permission targets and API tokens; SSO via OIDC and SAML; projects
 - SBOM (CycloneDX/SPDX), vulnerability scanning (OSV, Trivy, Grype), license compliance, secret detection
 - Cleanup policies, storage quotas, artifact properties, release bundles with promotion pipelines
 - Blob storage on filesystem, S3, GCS, Azure, Garage, SeaweedFS or an OCI registry; backups

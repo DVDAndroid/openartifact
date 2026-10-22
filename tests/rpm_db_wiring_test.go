@@ -1709,33 +1709,35 @@ func (m *MockDatabase) SearchByProperty(ctx context.Context, repoID, key, value 
 }
 
 // Organization methods
-func (m *MockDatabase) CreateOrganization(ctx context.Context, org *models.Organization) error {
+func (m *MockDatabase) CreateProject(ctx context.Context, org *models.Project) error {
 	return nil
 }
-func (m *MockDatabase) GetOrganization(ctx context.Context, id string) (*models.Organization, error) {
+func (m *MockDatabase) GetProject(ctx context.Context, id string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *MockDatabase) GetOrganizationByName(ctx context.Context, name string) (*models.Organization, error) {
+func (m *MockDatabase) GetProjectByName(ctx context.Context, name string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *MockDatabase) UpdateOrganization(ctx context.Context, org *models.Organization) error {
+func (m *MockDatabase) UpdateProject(ctx context.Context, org *models.Project) error {
 	return nil
 }
-func (m *MockDatabase) DeleteOrganization(ctx context.Context, id string) error { return nil }
-func (m *MockDatabase) ListOrganizations(ctx context.Context, userID string) ([]*models.Organization, error) {
+func (m *MockDatabase) DeleteProject(ctx context.Context, id string) error { return nil }
+func (m *MockDatabase) ListProjects(ctx context.Context, userID string) ([]*models.Project, error) {
 	return nil, nil
 }
-func (m *MockDatabase) AddOrgMember(ctx context.Context, orgID, userID, role string) error {
+func (m *MockDatabase) AddProjectMember(ctx context.Context, orgID, userID, role string) error {
 	return nil
 }
-func (m *MockDatabase) RemoveOrgMember(ctx context.Context, orgID, userID string) error { return nil }
-func (m *MockDatabase) ListOrgMembers(ctx context.Context, orgID string) ([]*models.OrgMember, error) {
+func (m *MockDatabase) RemoveProjectMember(ctx context.Context, orgID, userID string) error {
+	return nil
+}
+func (m *MockDatabase) ListProjectMembers(ctx context.Context, orgID string) ([]*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *MockDatabase) GetOrgMember(ctx context.Context, orgID, userID string) (*models.OrgMember, error) {
+func (m *MockDatabase) GetProjectMember(ctx context.Context, orgID, userID string) (*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *MockDatabase) UpdateOrgMemberRole(ctx context.Context, orgID, userID, role string) error {
+func (m *MockDatabase) UpdateProjectMemberRole(ctx context.Context, orgID, userID, role string) error {
 	return nil
 }
 

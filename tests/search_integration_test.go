@@ -52,7 +52,7 @@ func newSearchRepo(t *testing.T, pg *database.PostgresDB, name, format, descript
 	systemOrg := "00000000-0000-0000-0000-000000000001"
 	repo := &models.Repository{
 		Name: name, Format: format, Description: description, Public: public,
-		RepoType: "hosted", OrgID: &systemOrg,
+		RepoType: "hosted", ProjectID: &systemOrg,
 	}
 
 	if err := pg.CreateRepository(context.Background(), repo); err != nil {

@@ -214,74 +214,100 @@ func handleGroup(args []string, client *Client, outFmt string) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ORG
+// PROJECT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-func handleOrg(args []string, client *Client, outFmt string) {
+func handleProject(args []string, client *Client, outFmt string) {
 	if len(args) < 1 {
-		dief("Usage: oa org <list|create|show|delete|members|add-member|rm-member>")
+		dief("Usage: oa project <list|create|show|delete|members|add-member|rm-member|groups|add-group|rm-group>")
 	}
 
 	switch args[0] {
 	case "list":
-		listGeneric(client, "/api/v1/orgs", "organizations", []string{"NAME", "DISPLAY_NAME"}, []string{"name", "display_name"}, outFmt)
+		listGeneric(client, "/api/v1/projects", "projects", []string{"NAME", "DISPLAY_NAME"}, []string{"name", "display_name"}, outFmt)
 	case "create":
 		if len(args) < 2 {
-			dief("Usage: oa org create <name> [--display-name N] [--description D]")
+			dief("Usage: oa project create <name> [--display-name N] [--description D]")
 		}
 
-		fs := flag.NewFlagSet("org create", flag.ExitOnError)
+		fs := flag.NewFlagSet("project create", flag.ExitOnError)
 		displayName := fs.String("display-name", "", "Display name")
 		desc := fs.String("description", "", "Description")
 		_ = fs.Parse(args[2:])
 
-		sendJSON(client, "POST", "/api/v1/orgs", map[string]any{
+		sendJSON(client, "POST", "/api/v1/projects", map[string]any{
 			"name":         args[1],
 			"display_name": *displayName,
 			"description":  *desc,
 		}, http.StatusCreated)
-		fmt.Printf("Organization '%s' created.\n", args[1])
+		fmt.Printf("Project '%s' created.\n", args[1])
 	case "show":
 		if len(args) < 2 {
-			dief("Usage: oa org show <name>")
+			dief("Usage: oa project show <name>")
 		}
 
-		showGeneric(client, "/api/v1/orgs/"+escape(args[1]), outFmt)
+		showGeneric(client, "/api/v1/projects/"+escape(args[1]), outFmt)
 	case "delete":
 		if len(args) < 2 {
-			dief("Usage: oa org delete <name>")
+			dief("Usage: oa project delete <name>")
 		}
 
-		deleteResource(client, "/api/v1/orgs/"+escape(args[1]), fmt.Sprintf("Organization '%s' deleted.", args[1]))
+		deleteResource(client, "/api/v1/projects/"+escape(args[1]), fmt.Sprintf("Project '%s' deleted.", args[1]))
 	case "members":
 		if len(args) < 2 {
-			dief("Usage: oa org members <name>")
+			dief("Usage: oa project members <name>")
 		}
 
-		listGeneric(client, "/api/v1/orgs/"+escape(args[1])+"/members", "members",
+		listGeneric(client, "/api/v1/projects/"+escape(args[1])+"/members", "members",
 			[]string{"USER_ID", "ROLE"}, []string{"user_id", "role"}, outFmt)
 	case "add-member":
 		if len(args) < 3 {
-			dief("Usage: oa org add-member <name> <user-id> [--role member|owner]")
+			dief("Usage: oa project add-member <name> <user-id> [--role viewer|developer|maintainer|owner]")
 		}
 
-		fs := flag.NewFlagSet("org add-member", flag.ExitOnError)
-		role := fs.String("role", "member", "Role: member|owner")
+		fs := flag.NewFlagSet("project add-member", flag.ExitOnError)
+		role := fs.String("role", "viewer", "Role: viewer|developer|maintainer|owner")
 		_ = fs.Parse(args[3:])
 
-		sendJSON(client, "POST", "/api/v1/orgs/"+escape(args[1])+"/members", map[string]string{
+		sendJSON(client, "POST", "/api/v1/projects/"+escape(args[1])+"/members", map[string]string{
 			"user_id": args[2],
 			"role":    *role,
 		}, http.StatusCreated)
 		fmt.Println("Member added.")
 	case "rm-member":
 		if len(args) < 3 {
-			dief("Usage: oa org rm-member <name> <user-id>")
+			dief("Usage: oa project rm-member <name> <user-id>")
 		}
 
-		deleteResource(client, "/api/v1/orgs/"+escape(args[1])+"/members/"+escape(args[2]), "Member removed.")
+		deleteResource(client, "/api/v1/projects/"+escape(args[1])+"/members/"+escape(args[2]), "Member removed.")
+	case "groups":
+		if len(args) < 2 {
+			dief("Usage: oa project groups <name>")
+		}
+
+		listGeneric(client, "/api/v1/projects/"+escape(args[1])+"/groups", "groups",
+			[]string{"GROUP_NAME", "GROUP_ID", "ROLE"}, []string{"group_name", "group_id", "role"}, outFmt)
+	case "add-group":
+		if len(args) < 3 {
+			dief("Usage: oa project add-group <name> <group-id> [--role viewer|developer|maintainer]")
+		}
+
+		fs := flag.NewFlagSet("project add-group", flag.ExitOnError)
+		role := fs.String("role", "viewer", "Role: viewer|developer|maintainer")
+		_ = fs.Parse(args[3:])
+
+		sendJSON(client, "PUT", "/api/v1/projects/"+escape(args[1])+"/groups/"+escape(args[2]), map[string]string{
+			"role": *role,
+		}, http.StatusOK)
+		fmt.Println("Group added.")
+	case "rm-group":
+		if len(args) < 3 {
+			dief("Usage: oa project rm-group <name> <group-id>")
+		}
+
+		deleteResource(client, "/api/v1/projects/"+escape(args[1])+"/groups/"+escape(args[2]), "Group removed.")
 	default:
-		dief("Unknown org subcommand: %s", args[0])
+		dief("Unknown project subcommand: %s", args[0])
 	}
 }
 

@@ -561,31 +561,31 @@ func (m *sessionMockDB) SearchByProperty(_ context.Context, _, _, _ string) ([]s
 }
 
 // Organization methods
-func (m *sessionMockDB) CreateOrganization(_ context.Context, _ *models.Organization) error {
+func (m *sessionMockDB) CreateProject(_ context.Context, _ *models.Project) error {
 	return nil
 }
-func (m *sessionMockDB) GetOrganization(_ context.Context, _ string) (*models.Organization, error) {
+func (m *sessionMockDB) GetProject(_ context.Context, _ string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *sessionMockDB) GetOrganizationByName(_ context.Context, _ string) (*models.Organization, error) {
+func (m *sessionMockDB) GetProjectByName(_ context.Context, _ string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *sessionMockDB) UpdateOrganization(_ context.Context, _ *models.Organization) error {
+func (m *sessionMockDB) UpdateProject(_ context.Context, _ *models.Project) error {
 	return nil
 }
-func (m *sessionMockDB) DeleteOrganization(_ context.Context, _ string) error { return nil }
-func (m *sessionMockDB) ListOrganizations(_ context.Context, _ string) ([]*models.Organization, error) {
+func (m *sessionMockDB) DeleteProject(_ context.Context, _ string) error { return nil }
+func (m *sessionMockDB) ListProjects(_ context.Context, _ string) ([]*models.Project, error) {
 	return nil, nil
 }
-func (m *sessionMockDB) AddOrgMember(_ context.Context, _, _, _ string) error { return nil }
-func (m *sessionMockDB) RemoveOrgMember(_ context.Context, _, _ string) error { return nil }
-func (m *sessionMockDB) ListOrgMembers(_ context.Context, _ string) ([]*models.OrgMember, error) {
+func (m *sessionMockDB) AddProjectMember(_ context.Context, _, _, _ string) error { return nil }
+func (m *sessionMockDB) RemoveProjectMember(_ context.Context, _, _ string) error { return nil }
+func (m *sessionMockDB) ListProjectMembers(_ context.Context, _ string) ([]*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *sessionMockDB) GetOrgMember(_ context.Context, _, _ string) (*models.OrgMember, error) {
+func (m *sessionMockDB) GetProjectMember(_ context.Context, _, _ string) (*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *sessionMockDB) UpdateOrgMemberRole(_ context.Context, _, _, _ string) error { return nil }
+func (m *sessionMockDB) UpdateProjectMemberRole(_ context.Context, _, _, _ string) error { return nil }
 
 // System settings methods
 func (m *sessionMockDB) GetSystemSetting(_ context.Context, _ string) (string, error) { return "", nil }

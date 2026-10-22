@@ -93,44 +93,45 @@ All of these need admin, except the self-service rows.
 
 Groups managed by SSO mappings are described in [sso.md](sso.md).
 
-## Organizations
+## Projects
 
-An organization owns repositories, and its members get access to all of them. This is added to permission targets (union, no deny rules); it never replaces them.
+A project owns repositories, and its members get access to all of them. This is added to permission targets (union, no deny rules); it never replaces them.
 
 ### What membership grants
 
-A user is a member of organization O through an `organization_members` row or by being O's recorded owner (`owner_id`). On every repository whose organization is O, regardless of the repository's name or the artifact path:
+A user is a member of project P through a `project_members` row or by being P's recorded owner (`owner_id`). Users also get access through groups granted on the project (`project_groups`). On every repository whose project is P, regardless of the repository's name or the artifact path:
 
-| Membership role in O | Access on O's repositories | Actions |
-|---|---|---|
-| `owner` or `admin` | `admin` | read, write, delete |
-| `member` | the organization's `member_role` (`read` by default) | `read`: read. `write`: read, write. `admin`: read, write, delete |
+| Role in P | Actions |
+|---|---|
+| `viewer` | read |
+| `developer` | read, write |
+| `maintainer`, `owner` | read, write, delete |
 
-`member_role` (`read`, `write` or `admin`) is a property of the organization, set at creation or with `PUT /api/v1/orgs/{org}`; it applies to every plain member.
+Group grants (`viewer`, `developer` or `maintainer`; `owner` is personal and cannot be granted to a group) apply to every member of the group. When a user holds several grants (personal membership and any number of groups), the highest role wins.
 
 Limits:
 
-- Organization roles **never grant `manage`**. Administration (`/api/v1/*`, users, settings) stays decided by permission targets, so org roles never make anyone a global admin.
-- The **built-in `system` organization** (id `00000000-0000-0000-0000-000000000001`) is the legacy default organization and grants nothing: membership of it, its roles and its `member_role` are ignored. Repositories created before this feature, and repositories created without an `org`, live there and stay governed by permission targets only.
-- Applies to sessions and to API tokens without scopes (a token inherits its owner's access, like with targets). A token with non-empty `scopes` gets **no** organization access: scopes are permission-target IDs and only narrow the owner's targets. Anonymous callers never get organization access. A `deploy` token is still never granted `manage`.
-- Group membership does not confer organization membership.
-- Repository listings (`GET /api/v1/repositories`) and search use the same rule, so a member sees the organization's repositories.
-- A group repository is authorized by its own organization only; its members are still re-authorized individually (see above), so access to a member repository in another organization is needed too.
+- Project roles **never grant `manage`**. Administration (`/api/v1/*`, users, settings) stays decided by permission targets, so project roles never make anyone a global admin.
+- The **built-in `system` project** (id `00000000-0000-0000-0000-000000000001`) is the default project and grants nothing: membership of it, its roles and its group grants are ignored. Repositories created without a `project` live there and stay governed by permission targets only.
+- Applies to sessions and to API tokens without scopes (a token inherits its owner's access, like with targets). A token with non-empty `scopes` gets **no** project access: scopes are permission-target IDs and only narrow the owner's targets. Anonymous callers never get project access. A `deploy` token is still never granted `manage`.
+- Repository listings (`GET /api/v1/repositories`) and search use the same rule, so a member sees the project's repositories.
+- A group repository is authorized by its own project only; its members are still re-authorized individually (see above), so access to a member repository in another project is needed too.
 
-### How repositories get an organization
+### How repositories get a project
 
-`POST /api/v1/repositories` accepts an optional `org` (organization name); without it the repository is created in the `system` organization. An unknown name returns 404. A global admin can move a repository with `PATCH /api/v1/repository/{name}` and `{"org":"<name>"}` (use `"system"` to move it back); access changes immediately. Repository responses carry the organization name in `org`. Repository names are unique across organizations. An organization that still owns repositories cannot be deleted (409).
+`POST /api/v1/repositories` accepts an optional `project` (project name); without it the repository is created in the `system` project. An unknown name returns 404. A global admin can move a repository with `PATCH /api/v1/repository/{name}` and `{"project":"<name>"}` (use `"system"` to move it back); access changes immediately. Repository responses carry the project name in `project`. Repository names are unique across projects. A project that still owns repositories cannot be deleted (409).
 
-### Managing organizations
+### Managing projects
+
+Management is admin-only in this release: every endpoint below sits behind `/api/v1/*` and needs the global `manage` permission. Project roles do not open this API to non-admins.
 
 | Endpoint | Notes |
 |---|---|
-| `POST/GET /api/v1/orgs` | create (name `^[a-zA-Z0-9_-]{1,100}$`, optional `member_role`; the creator becomes owner and member; the response carries a `slug` derived from the name: lowercased, every run of characters other than letters and digits becomes one hyphen, so `Acme_Team` is `acme-team`; a name or slug collision, such as `Acme-Corp` after `acme-corp`, returns 409, and a name with no letter or digit or a slug over 64 characters returns 400) / list the organizations the caller belongs to |
-| `GET/PUT/DELETE /api/v1/orgs/{org}` | update (`display_name`, `description`, `member_role`) needs an org owner or admin; delete needs the owner and returns 409 while repositories are still owned |
-| `GET/POST /api/v1/orgs/{org}/members`, `PUT/DELETE /api/v1/orgs/{org}/members/{user_id}` | roles `owner`, `admin`, `member` |
-
-All of these sit behind `/api/v1/*`, so they need the global `manage` permission: only global admins can call them, and the per-organization owner/admin checks apply on top of that. Org roles do not open this API to non-admins.
+| `POST/GET /api/v1/projects` | create (name `^[a-zA-Z0-9_-]{1,100}$`, `display_name`, `description`, optional policy fields; the response carries a `slug` derived from the name: lowercased, every run of characters other than letters and digits becomes one hyphen, so `Acme_Team` is `acme-team`; a name or slug collision, such as `Acme-Corp` after `acme-corp`, returns 409, and a name with no letter or digit or a slug over 64 characters returns 400) / list projects (`{"projects":[…]}`) |
+| `GET/PUT/DELETE /api/v1/projects/{project}` | `PUT` is a partial update (`display_name`, `description`, `allowed_formats`, `allowed_repo_types`, `repo_name_prefix`, `allow_public_repos`, `max_repositories`, `token_max_ttl_days`); delete returns 204, or 409 while repositories are still owned |
+| `GET/POST /api/v1/projects/{project}/members`, `PUT/DELETE /api/v1/projects/{project}/members/{user_id}` | roles `viewer` (default), `developer`, `maintainer`, `owner` |
+| `GET /api/v1/projects/{project}/groups`, `PUT/DELETE /api/v1/projects/{project}/groups/{group_id}` | group grants; `PUT` body `{"role":"viewer\|developer\|maintainer"}` |
 
 ### Caching
 
-Organization memberships, `member_role` and a repository's organization are cached per request path like the other auth lookups (`DB_AUTH_CACHE_TTL_MS`, default 2000 ms). Every membership, organization or repository change made through this server invalidates the cache at once. Another replica, or a change made directly in the database, is seen after at most the TTL, so a removed member can keep access that long there.
+Project memberships, group grants and a repository's project are cached per request path like the other auth lookups (`DB_AUTH_CACHE_TTL_MS`, default 2000 ms). Every membership, project or repository change made through this server invalidates the cache at once. Another replica, or a change made directly in the database, is seen after at most the TTL, so a removed member can keep access that long there.

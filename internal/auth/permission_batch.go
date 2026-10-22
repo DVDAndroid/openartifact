@@ -12,8 +12,8 @@ import (
 
 // RepoReadFilter returns a predicate reporting whether the principal may read a
 // repository by name. The principal's permission targets are loaded once, so
-// filtering N repositories costs one query instead of N. Organization
-// memberships apply as in Evaluate (decided from the repository's OrgID).
+// filtering N repositories costs one query instead of N. Project
+// roles apply as in Evaluate (decided from the repository's ProjectID).
 func (e *Evaluator) RepoReadFilter(ctx context.Context, principal Principal) (func(repo *models.Repository) (bool, error), error) {
 	if principal.IsLegacy {
 		return func(*models.Repository) (bool, error) { return true, nil }, nil
@@ -59,14 +59,14 @@ func (e *Evaluator) RepoReadFilter(ctx context.Context, principal Principal) (fu
 		return nil, err
 	}
 
-	levels, err := e.orgLevels(ctx, principal)
+	roles, err := e.projectRoles(ctx, principal)
 	if err != nil {
 		return nil, err
 	}
 
 	return func(repo *models.Repository) (bool, error) {
-		if repo.OrgID != nil {
-			if level, ok := levels[*repo.OrgID]; ok && orgLevelAllows(level, "read") {
+		if repo.ProjectID != nil {
+			if role, ok := roles[*repo.ProjectID]; ok && projectRoleAllows(role, "read") {
 				return true, nil
 			}
 		}

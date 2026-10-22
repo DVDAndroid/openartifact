@@ -400,9 +400,7 @@ type packageExport struct {
 //
 // Coverage notes (see the caller's report for the full table-by-table
 // list): every per-repo package/metadata table backed by a Database
-// list-by-repo (or composable) method round-trips. Organizations with no
-// members whose owner was since deleted are the one documented gap — see
-// exportGlobalTables.
+// list-by-repo (or composable) method round-trips.
 //
 // Soft-deleted data (the trash: repositories and package rows with deleted_at
 // set) is not part of a backup. The export goes through the Database list
@@ -498,7 +496,7 @@ func (e *Engine) exportMetadata(ctx context.Context, tw *tar.Writer, manifest *B
 		}
 	}
 
-	return e.exportGlobalTables(ctx, tw, manifest, users)
+	return e.exportGlobalTables(ctx, tw, manifest)
 }
 
 // groupMemberRecord is one repository_group_members row in the archive. It
@@ -763,12 +761,8 @@ func writeListedTable[T any](e *Engine, tw *tar.Writer, manifest *BackupManifest
 	return e.writeTable(tw, manifest, name, v, len(v))
 }
 
-// exportGlobalTables backs up tables with no repository scope. Organizations
-// have no plain "list all" method (ListOrganizations filters by owner-or-member
-// user id), so it's unioned over every backed-up user — this misses an
-// organization with no members whose owner was since deleted, a rare,
-// self-documenting edge case.
-func (e *Engine) exportGlobalTables(ctx context.Context, tw *tar.Writer, manifest *BackupManifest, users []*models.User) error {
+// exportGlobalTables backs up tables with no repository scope.
+func (e *Engine) exportGlobalTables(ctx context.Context, tw *tar.Writer, manifest *BackupManifest) error {
 	sso, err := e.db.ListAllSSOProviders(ctx)
 	for i, p := range sso {
 		if p != nil {
@@ -809,7 +803,7 @@ func (e *Engine) exportGlobalTables(ctx context.Context, tw *tar.Writer, manifes
 		return err
 	}
 
-	return e.exportOrganizations(ctx, tw, manifest, users)
+	return e.exportProjects(ctx, tw, manifest)
 }
 
 // exportBundles backs up release bundles with their items and promotions.
@@ -846,42 +840,43 @@ func (e *Engine) exportBundles(ctx context.Context, tw *tar.Writer, manifest *Ba
 	return e.writeTable(tw, manifest, "bundle_promotions", bundlePromotions, len(bundlePromotions))
 }
 
-// exportOrganizations backs up organizations (unioned over users) and members.
-func (e *Engine) exportOrganizations(ctx context.Context, tw *tar.Writer, manifest *BackupManifest, users []*models.User) error {
-	orgsByID := map[string]*models.Organization{}
-
-	for _, u := range users {
-		orgs, err := e.db.ListOrganizations(ctx, u.ID)
-		if err != nil {
-			return fmt.Errorf("failed to list organizations for user %s: %w", u.ID, err)
-		}
-
-		for _, o := range orgs {
-			orgsByID[o.ID] = o
-		}
+// exportProjects backs up projects, their members and their group grants.
+func (e *Engine) exportProjects(ctx context.Context, tw *tar.Writer, manifest *BackupManifest) error {
+	projects, err := e.db.ListAllProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list projects: %w", err)
 	}
 
-	organizations := make([]*models.Organization, 0, len(orgsByID))
-	for _, o := range orgsByID {
-		organizations = append(organizations, o)
-	}
-
-	if err := e.writeTable(tw, manifest, "organizations", organizations, len(organizations)); err != nil {
+	if err := e.writeTable(tw, manifest, "projects", projects, len(projects)); err != nil {
 		return err
 	}
 
-	var orgMembers []*models.OrgMember
+	var (
+		members []*models.ProjectMember
+		groups  []*models.ProjectGroup
+	)
 
-	for _, o := range organizations {
-		members, err := e.db.ListOrgMembers(ctx, o.ID)
+	for _, project := range projects {
+		m, err := e.db.ListProjectMembers(ctx, project.ID)
 		if err != nil {
-			return fmt.Errorf("failed to list members of organization %s: %w", o.ID, err)
+			return fmt.Errorf("failed to list members of project %s: %w", project.ID, err)
 		}
 
-		orgMembers = append(orgMembers, members...)
+		members = append(members, m...)
+
+		g, err := e.db.ListProjectGroups(ctx, project.ID)
+		if err != nil {
+			return fmt.Errorf("failed to list groups of project %s: %w", project.ID, err)
+		}
+
+		groups = append(groups, g...)
 	}
 
-	return e.writeTable(tw, manifest, "org_members", orgMembers, len(orgMembers))
+	if err := e.writeTable(tw, manifest, "project_members", members, len(members)); err != nil {
+		return err
+	}
+
+	return e.writeTable(tw, manifest, "project_groups", groups, len(groups))
 }
 
 // ErrBlobListingUnsupported is returned by a full backup on a storage backend
@@ -1009,7 +1004,7 @@ func (e *Engine) writeJSONLFile(tw *tar.Writer, filename string, data any) error
 // restoreState carries the id remaps built up while walking the archive:
 // most Create* methods regenerate a server-side id (repositories, users,
 // debian distributions/components, promotion pipelines, release bundles,
-// organizations all do), so every table that references one of those ids
+// projects all do), so every table that references one of those ids
 // must be rewritten to point at the NEW id before it's restored.
 type restoreState struct {
 	repoIDMap       map[string]string    // old repository id -> new
@@ -1019,33 +1014,40 @@ type restoreState struct {
 	compByDistName  map[string]string    // new_dist_id+"|"+comp_name -> new comp id
 	pipelineIDMap   map[string]string    // old promotion_pipelines id -> new
 	bundleIDMap     map[string]string    // old release_bundles id -> new
-	orgIDMap        map[string]string    // old organizations id -> new
+	projectIDMap    map[string]string    // old projects (organizations) id -> new
+	groupIDMap      map[string]string    // old groups id -> new
 	npmPackageIDMap map[string]string    // old npm_packages id -> new
 	hostedRepos     []*models.Repository // restored non-proxy, non-group repos (new ids)
 	failures        int                  // records skipped/failed outside Engine methods
-	// orgRepos are restored repositories that belonged to a non-system
-	// organization. Repositories are restored before organizations, so they are
-	// inserted into the system organization and moved once the organization
-	// exists (restoreOrganizations).
-	orgRepos []orgRepo
+	// projectRepos are restored repositories that belonged to a non-system
+	// project. Repositories are restored before projects, so they are inserted
+	// into the system project and moved once the project exists
+	// (restoreProjects).
+	projectRepos []projectRepo
+	// legacyMemberRole is the organization-wide member_role of every legacy
+	// ("organizations") archive entry by old id, needed to map plain members to
+	// a project role.
+	legacyMemberRole map[string]string
 }
 
-type orgRepo struct {
-	repo     *models.Repository
-	oldOrgID string
+type projectRepo struct {
+	repo         *models.Repository
+	oldProjectID string
 }
 
 func newRestoreState() *restoreState {
 	return &restoreState{
-		repoIDMap:       map[string]string{},
-		userIDMap:       map[string]string{},
-		distIDMap:       map[string]string{},
-		distByRepoName:  map[string]string{},
-		compByDistName:  map[string]string{},
-		pipelineIDMap:   map[string]string{},
-		bundleIDMap:     map[string]string{},
-		orgIDMap:        map[string]string{},
-		npmPackageIDMap: map[string]string{},
+		repoIDMap:        map[string]string{},
+		userIDMap:        map[string]string{},
+		distIDMap:        map[string]string{},
+		distByRepoName:   map[string]string{},
+		compByDistName:   map[string]string{},
+		pipelineIDMap:    map[string]string{},
+		bundleIDMap:      map[string]string{},
+		projectIDMap:     map[string]string{},
+		groupIDMap:       map[string]string{},
+		legacyMemberRole: map[string]string{},
+		npmPackageIDMap:  map[string]string{},
 	}
 }
 
@@ -1132,8 +1134,8 @@ func (e *Engine) RunRestore(ctx context.Context, backupPath string) error {
 	// Process files. Order matters: exportMetadata always writes
 	// repositories/users/groups first, then the debian hierarchy before
 	// deb_packages, then promotion_pipelines before release_bundles before
-	// release_bundle_items/bundle_promotions, then organizations before
-	// org_members — restoreEntry relies on that order to have the id remaps
+	// release_bundle_items/bundle_promotions, then projects before
+	// project_members and project_groups — restoreEntry relies on that order to have the id remaps
 	// it needs already populated in st.
 	for {
 		header, err := tarReader.Next()
@@ -1222,7 +1224,7 @@ func (e *Engine) restoreEntry(ctx context.Context, r io.Reader, name string, st 
 	case "users.jsonl":
 		return e.restoreUsers(ctx, r, st)
 	case "groups.jsonl":
-		return e.restoreGroups(ctx, r)
+		return e.restoreGroups(ctx, r, st)
 	case "repository_group_members.jsonl":
 		return e.restoreGroupMembers(ctx, r, st)
 	case "debian_distributions.jsonl":
@@ -1370,10 +1372,17 @@ func (e *Engine) restoreEntry(ctx context.Context, r io.Reader, name string, st 
 		return e.restoreReleaseBundleItems(ctx, r, st)
 	case "bundle_promotions.jsonl":
 		return e.restoreBundlePromotions(ctx, r, st)
+	case "projects.jsonl":
+		return e.restoreProjects(ctx, r, st)
+	case "project_members.jsonl":
+		return e.restoreProjectMembers(ctx, r, st)
+	case "project_groups.jsonl":
+		return e.restoreProjectGroups(ctx, r, st)
+	// Archives written before organizations became projects.
 	case "organizations.jsonl":
-		return e.restoreOrganizations(ctx, r, st)
+		return e.restoreLegacyOrganizations(ctx, r, st)
 	case "org_members.jsonl":
-		return e.restoreOrgMembers(ctx, r, st)
+		return e.restoreLegacyOrgMembers(ctx, r, st)
 	default:
 		// Forward-compatible: ignore entries a newer backup wrote that this
 		// version doesn't know how to restore.
@@ -1446,19 +1455,24 @@ func restoreRepoScoped[T any](
 // always generates a fresh server-side id (see postgres.go), so every
 // subsequent table referencing a repository must go through repoIDMap.
 func (e *Engine) restoreRepositories(ctx context.Context, r io.Reader, st *restoreState) error {
-	repos, err := decodeSlice[*models.Repository](r)
+	archived, err := decodeSlice[*archivedRepository](r)
 	if err != nil {
 		return fmt.Errorf("failed to decode repositories: %w", err)
 	}
 
-	for _, repo := range repos {
+	for _, ar := range archived {
+		repo := &ar.Repository
 		oldID := repo.ID
 
-		oldOrgID := ""
-		if repo.OrgID != nil && *repo.OrgID != models.SystemOrgID {
-			oldOrgID = *repo.OrgID
-			sys := models.SystemOrgID
-			repo.OrgID = &sys
+		if repo.ProjectID == nil {
+			repo.ProjectID = ar.LegacyOrgID
+		}
+
+		oldProjectID := ""
+		if repo.ProjectID != nil && *repo.ProjectID != models.SystemProjectID {
+			oldProjectID = *repo.ProjectID
+			sys := models.SystemProjectID
+			repo.ProjectID = &sys
 		}
 
 		if err := e.db.CreateRepository(ctx, repo); err != nil {
@@ -1472,8 +1486,8 @@ func (e *Engine) restoreRepositories(ctx context.Context, r io.Reader, st *resto
 			st.hostedRepos = append(st.hostedRepos, repo)
 		}
 
-		if oldOrgID != "" {
-			st.orgRepos = append(st.orgRepos, orgRepo{repo: repo, oldOrgID: oldOrgID})
+		if oldProjectID != "" {
+			st.projectRepos = append(st.projectRepos, projectRepo{repo: repo, oldProjectID: oldProjectID})
 		}
 	}
 
@@ -1482,7 +1496,7 @@ func (e *Engine) restoreRepositories(ctx context.Context, r io.Reader, st *resto
 
 // restoreUsers restores users from JSON data. CreateUser always generates a
 // fresh server-side id, needed downstream for tokens.user_id and
-// organizations.owner_id/org_members.user_id.
+// projects.owner_id/project_members.user_id.
 func (e *Engine) restoreUsers(ctx context.Context, r io.Reader, st *restoreState) error {
 	users, err := decodeSlice[*models.User](r)
 	if err != nil {
@@ -1503,15 +1517,23 @@ func (e *Engine) restoreUsers(ctx context.Context, r io.Reader, st *restoreState
 }
 
 // restoreGroups restores groups from JSON data.
-func (e *Engine) restoreGroups(ctx context.Context, r io.Reader) error {
+func (e *Engine) restoreGroups(ctx context.Context, r io.Reader, st *restoreState) error {
 	groups, err := decodeSlice[*models.Group](r)
 	if err != nil {
 		return fmt.Errorf("failed to decode groups: %w", err)
 	}
 
 	for _, group := range groups {
-		if _, err := e.db.CreateGroup(ctx, group); err != nil {
+		oldID := group.ID
+
+		created, err := e.db.CreateGroup(ctx, group)
+		if err != nil {
 			e.restoreWarn("failed to restore group", "name", group.Name, "error", err)
+			continue
+		}
+
+		if created != nil {
+			st.groupIDMap[oldID] = created.ID
 		}
 	}
 
@@ -2099,12 +2121,68 @@ func (e *Engine) restoreBundlePromotions(ctx context.Context, r io.Reader, st *r
 	return nil
 }
 
-func (e *Engine) restoreOrganizations(ctx context.Context, r io.Reader, st *restoreState) error {
-	items, err := decodeSlice[*models.Organization](r)
+// archivedRepository decodes a repository from an archive: the project link
+// is "ProjectID" since projects replaced organizations, "OrgID" before.
+type archivedRepository struct {
+	models.Repository
+	LegacyOrgID *string `json:"OrgID"`
+}
+
+func (e *Engine) restoreProjects(ctx context.Context, r io.Reader, st *restoreState) error {
+	items, err := decodeSlice[*models.Project](r)
+	if err != nil {
+		return fmt.Errorf("failed to decode projects: %w", err)
+	}
+
+	e.createRestoredProjects(ctx, items, st)
+
+	return nil
+}
+
+// legacyOrganization is an "organizations" archive entry: a project without
+// policy and with the organization-wide member_role.
+type legacyOrganization struct {
+	models.Project
+	MemberRole string
+}
+
+// restoreLegacyOrganizations restores an organization as a project with the
+// policy defaults existing organizations got in the migration.
+func (e *Engine) restoreLegacyOrganizations(ctx context.Context, r io.Reader, st *restoreState) error {
+	legacy, err := decodeSlice[*legacyOrganization](r)
 	if err != nil {
 		return fmt.Errorf("failed to decode organizations: %w", err)
 	}
 
+	items := make([]*models.Project, 0, len(legacy))
+
+	for _, l := range legacy {
+		project := l.Project
+		if project.Slug == "" {
+			project.Slug = models.ProjectSlug(project.Name)
+		}
+
+		project.AllowedRepoTypes = []string{models.ProjectRepoTypeHosted}
+		project.RepoNamePrefix = project.Slug + "-"
+		project.MaxRepositories = legacyMaxRepositories
+		project.TokenMaxTTLDays = legacyTokenMaxTTLDays
+		st.legacyMemberRole[project.ID] = l.MemberRole
+		items = append(items, &project)
+	}
+
+	e.createRestoredProjects(ctx, items, st)
+
+	return nil
+}
+
+// Policy defaults the migration gave existing organizations.
+const (
+	systemProjectName     = "system"
+	legacyMaxRepositories = 50
+	legacyTokenMaxTTLDays = 365
+)
+
+func (e *Engine) createRestoredProjects(ctx context.Context, items []*models.Project, st *restoreState) {
 	for _, it := range items {
 		oldID := it.ID
 
@@ -2116,60 +2194,155 @@ func (e *Engine) restoreOrganizations(ctx context.Context, r io.Reader, st *rest
 			}
 		}
 
-		if err := e.db.CreateOrganization(ctx, it); err != nil {
-			e.restoreWarn("failed to restore organization", "name", it.Name, "error", err)
+		// The built-in system project exists in every database and grants
+		// nothing: map it to itself instead of recreating it.
+		if oldID == models.SystemProjectID || it.Name == systemProjectName {
+			st.projectIDMap[oldID] = models.SystemProjectID
 			continue
 		}
 
-		st.orgIDMap[oldID] = it.ID
+		if err := e.db.CreateProject(ctx, it); err != nil {
+			e.restoreWarn("failed to restore project", "name", it.Name, "error", err)
+			continue
+		}
+
+		st.projectIDMap[oldID] = it.ID
+
+		if role, ok := st.legacyMemberRole[oldID]; ok {
+			st.legacyMemberRole[it.ID] = role
+		}
 	}
 
-	e.moveRestoredReposToOrgs(ctx, st)
+	e.moveRestoredReposToProjects(ctx, st)
+}
+
+// moveRestoredReposToProjects puts restored repositories back into their
+// project. One whose project was not restored (for example the name already
+// exists) stays in the system project, which grants nothing.
+func (e *Engine) moveRestoredReposToProjects(ctx context.Context, st *restoreState) {
+	for _, it := range st.projectRepos {
+		newProjectID, ok := st.projectIDMap[it.oldProjectID]
+		if !ok {
+			e.restoreWarn("repository stays in the system project: its project was not restored", "repository", it.repo.Name)
+			continue
+		}
+
+		it.repo.ProjectID = &newProjectID
+		if err := e.db.UpdateRepository(ctx, it.repo); err != nil {
+			e.restoreWarn("failed to move restored repository into its project", "repository", it.repo.Name, "error", err)
+		}
+	}
+
+	st.projectRepos = nil
+}
+
+func (e *Engine) restoreProjectMembers(ctx context.Context, r io.Reader, st *restoreState) error {
+	items, err := decodeSlice[*models.ProjectMember](r)
+	if err != nil {
+		return fmt.Errorf("failed to decode project members: %w", err)
+	}
+
+	for _, it := range items {
+		e.restoreProjectMember(ctx, st, it.ProjectID, it.UserID, it.Role)
+	}
 
 	return nil
 }
 
-// moveRestoredReposToOrgs puts restored repositories back into their
-// organization. One whose organization was not restored (for example the name
-// already exists) stays in the system organization, which grants nothing.
-func (e *Engine) moveRestoredReposToOrgs(ctx context.Context, st *restoreState) {
-	for _, it := range st.orgRepos {
-		newOrgID, ok := st.orgIDMap[it.oldOrgID]
-		if !ok {
-			e.restoreWarn("repository stays in the system organization: its organization was not restored", "repository", it.repo.Name)
-			continue
-		}
-
-		it.repo.OrgID = &newOrgID
-		if err := e.db.UpdateRepository(ctx, it.repo); err != nil {
-			e.restoreWarn("failed to move restored repository into its organization", "repository", it.repo.Name, "error", err)
-		}
-	}
-
-	st.orgRepos = nil
+// legacyOrgMember is an "org_members" archive entry.
+type legacyOrgMember struct {
+	OrgID  string
+	UserID string
+	Role   string
 }
 
-func (e *Engine) restoreOrgMembers(ctx context.Context, r io.Reader, st *restoreState) error {
-	items, err := decodeSlice[*models.OrgMember](r)
+// restoreLegacyOrgMembers maps the organization roles to project roles: admin
+// becomes maintainer, a plain member gets the role of the organization's
+// member_role (read viewer, write developer, admin maintainer).
+func (e *Engine) restoreLegacyOrgMembers(ctx context.Context, r io.Reader, st *restoreState) error {
+	items, err := decodeSlice[*legacyOrgMember](r)
 	if err != nil {
 		return fmt.Errorf("failed to decode org members: %w", err)
 	}
 
 	for _, it := range items {
-		newOrgID, ok := st.orgIDMap[it.OrgID]
+		role := it.Role
+
+		switch it.Role {
+		case "admin":
+			role = models.ProjectRoleMaintainer
+		case "member":
+			switch st.legacyMemberRole[it.OrgID] {
+			case "write":
+				role = models.ProjectRoleDeveloper
+			case "admin":
+				role = models.ProjectRoleMaintainer
+			default:
+				role = models.ProjectRoleViewer
+			}
+		}
+
+		e.restoreProjectMember(ctx, st, it.OrgID, it.UserID, role)
+	}
+
+	return nil
+}
+
+func (e *Engine) restoreProjectMember(ctx context.Context, st *restoreState, oldProjectID, oldUserID, role string) {
+	newProjectID, ok := st.projectIDMap[oldProjectID]
+	if !ok {
+		e.restoreWarn("skipping project member: source project not restored", "project_id", oldProjectID)
+		return
+	}
+
+	if newProjectID == models.SystemProjectID {
+		return // the system project's membership grants nothing
+	}
+
+	newUserID, ok := st.userIDMap[oldUserID]
+	if !ok {
+		e.restoreWarn("skipping project member: source user not restored", "user_id", oldUserID)
+		return
+	}
+
+	if err := e.db.AddProjectMember(ctx, newProjectID, newUserID, role); err != nil {
+		e.restoreWarn("failed to restore project member", "project_id", newProjectID, "user_id", newUserID, "error", err)
+	}
+}
+
+func (e *Engine) restoreProjectGroups(ctx context.Context, r io.Reader, st *restoreState) error {
+	items, err := decodeSlice[*models.ProjectGroup](r)
+	if err != nil {
+		return fmt.Errorf("failed to decode project groups: %w", err)
+	}
+
+	for _, it := range items {
+		newProjectID, ok := st.projectIDMap[it.ProjectID]
 		if !ok {
-			e.restoreWarn("skipping org member: source organization not restored", "org_id", it.OrgID)
+			e.restoreWarn("skipping project group: source project not restored", "project_id", it.ProjectID)
 			continue
 		}
 
-		newUserID, ok := st.userIDMap[it.UserID]
+		if newProjectID == models.SystemProjectID {
+			continue // the system project's grants are nothing
+		}
+
+		newGroupID, ok := st.groupIDMap[it.GroupID]
 		if !ok {
-			e.restoreWarn("skipping org member: source user not restored", "user_id", it.UserID)
+			e.restoreWarn("skipping project group: source group not restored", "group_id", it.GroupID)
 			continue
 		}
 
-		if err := e.db.AddOrgMember(ctx, newOrgID, newUserID, it.Role); err != nil {
-			e.restoreWarn("failed to restore org member", "org_id", newOrgID, "user_id", newUserID, "error", err)
+		var createdBy *string
+
+		if it.CreatedBy != nil {
+			if id, ok := st.userIDMap[*it.CreatedBy]; ok {
+				createdBy = &id
+			}
+		}
+
+		if err := e.db.SetProjectGroup(ctx, newProjectID, newGroupID, it.Role, createdBy); err != nil {
+			e.restoreWarn("failed to restore project group", "project_id", newProjectID, "group_id", newGroupID, "error", err)
 		}
 	}
 

@@ -24,6 +24,7 @@ const artifactURL = "/repos/myrepo/org.example/mod/1.0/mod-1.0.jar"
 // already exists. art is the row written last.
 type sbtDB struct {
 	*formattest.DB
+	quotaFake
 
 	art  *models.SBTArtifact
 	rows map[string]*models.SBTArtifact

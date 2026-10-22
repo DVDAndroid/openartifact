@@ -30,11 +30,23 @@ const Message = "repository storage quota exceeded (bytes of trashed items count
 // artifact is not persisted afterwards, and call Release when the artifact is
 // deleted.
 func Enforce(ctx context.Context, db database.Database, repoID string, size int64) error {
+	return EnforceN(ctx, db, repoID, size, 1)
+}
+
+// EnforceN is Enforce for an upload that stands for count artifacts (0 for the
+// bytes-only parts of one: a Go module's go.mod, a Docker layer blob). A
+// reservation of zero bytes and zero artifacts always fits. Pair it with
+// ReleaseN using the same size and count.
+func EnforceN(ctx context.Context, db database.Database, repoID string, size int64, count int) error {
 	if size < 0 {
 		size = 0
 	}
 
-	ok, err := db.ReserveStorageUsage(ctx, repoID, size, 1)
+	if count < 0 {
+		count = 0
+	}
+
+	ok, err := db.ReserveStorageUsage(ctx, repoID, size, count)
 	if err != nil {
 		return fmt.Errorf("enforce quota: %w", err)
 	}

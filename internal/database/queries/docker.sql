@@ -1,10 +1,12 @@
 -- name: CreateDockerBlob :one
 -- Re-pushing a blob the repository already holds is a no-op, not an error.
+-- inserted tells a new row (which the caller has reserved quota for) from the
+-- refresh of an existing one: xmax is 0 only on a row this statement inserted.
 INSERT INTO docker_blobs (repository_id, digest, blob_id, size_bytes)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (repository_id, digest) DO UPDATE SET blob_id = EXCLUDED.blob_id, last_used_at = now(),
     size_bytes = COALESCE(docker_blobs.size_bytes, EXCLUDED.size_bytes)
-RETURNING id, created_at;
+RETURNING id, created_at, (xmax = 0) AS inserted;
 
 -- name: GetDockerBlob :one
 SELECT dbb.id, dbb.repository_id, dbb.digest, b.media_type, COALESCE(dbb.size_bytes, b.size_bytes)::bigint AS size, b.sha256 AS blob_sha256, dbb.created_at
@@ -12,7 +14,7 @@ FROM docker_blobs dbb
 JOIN blobs b ON b.id = dbb.blob_id
 WHERE dbb.repository_id = $1 AND dbb.digest = $2;
 
--- name: DeleteDockerBlob :exec
+-- name: DeleteDockerBlob :execrows
 DELETE FROM docker_blobs WHERE repository_id = $1 AND digest = $2;
 
 -- name: ListDockerBlobs :many
@@ -56,7 +58,7 @@ VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
 ON CONFLICT (repository_id, image, digest) WHERE deleted_at IS NULL DO UPDATE
     SET media_type = EXCLUDED.media_type, blob_id = EXCLUDED.blob_id, size = EXCLUDED.size,
         subject_digest = EXCLUDED.subject_digest, updated_at = now()
-RETURNING id, created_at, updated_at;
+RETURNING id, created_at, updated_at, (xmax = 0) AS inserted;
 
 -- name: GetDockerManifest :one
 SELECT id, repository_id, image, digest, media_type, blob_id, size,
@@ -65,7 +67,7 @@ SELECT id, repository_id, image, digest, media_type, blob_id, size,
 FROM docker_manifests
 WHERE repository_id = $1 AND image = $2 AND digest = $3 AND deleted_at IS NULL;
 
--- name: DeleteDockerManifest :exec
+-- name: DeleteDockerManifest :execrows
 -- Permanent delete of a live manifest (retention 0 path); trashed rows are left to purge.
 DELETE FROM docker_manifests WHERE repository_id = $1 AND image = $2 AND digest = $3 AND deleted_at IS NULL;
 

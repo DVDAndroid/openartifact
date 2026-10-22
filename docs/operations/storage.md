@@ -315,7 +315,7 @@ Uploads land under the key prefix `staging/<uuid>` in the bucket. A worker runs 
 
 #### Quota, license and secret scanning
 
-The raw `PUT` does not run quota, license policy or secret scanning inline today (quota is enforced only on deb, rpm, npm, maven, helm and rubygems uploads; license and secret scans are on-demand scan endpoints), and the presigned raw upload behaves the same. Because the bytes go straight to the bucket, the server could not enforce a quota before they land anyway: only the declared `size` is bounded.
+The raw `PUT` does not run license policy or secret scanning inline (they are on-demand scan endpoints), and the presigned raw upload behaves the same. The [storage quota](../repositories/cleanup-and-quotas.md#what-counts) is enforced on both: the `PUT` reserves it before storing; a presigned upload cannot be checked before the bytes land in the bucket, so the reservation is made at `complete` from the verified size, and an over-quota completion answers `507`, records nothing and leaves the upload pending (complete it again once space is free; otherwise it expires like any pending upload). Only the declared `size` is bounded before that.
 
 #### Why OCI blob uploads are not presigned
 

@@ -24,6 +24,7 @@ import (
 	"github.com/openartifact/openartifact/internal/format/base"
 	formatraw "github.com/openartifact/openartifact/internal/format/raw"
 	"github.com/openartifact/openartifact/internal/metrics"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/urlparams"
@@ -538,6 +539,10 @@ func failImmutable(path string) *completeFailure {
 	return &completeFailure{http.StatusConflict, "immutable_release", "repository has immutable releases: cannot overwrite " + path}
 }
 
+func failQuota() *completeFailure {
+	return &completeFailure{http.StatusInsufficientStorage, "quota_exceeded", quota.Message}
+}
+
 func failMissing() *completeFailure {
 	return &completeFailure{http.StatusConflict, "upload_missing", "no object has been uploaded to the upload URL yet"}
 }
@@ -597,6 +602,15 @@ func (h *PresignedUploadHandler) complete(req *http.Request, repo *models.Reposi
 		h.release(ctx, up.ID)
 
 		return CompletePresignedUploadResponse{}, failImmutable(up.Path)
+	case errors.Is(err, quota.ErrExceeded):
+		// Nothing was promoted or recorded. Like the immutable refusal the
+		// upload stays pending, so it can be completed once space is freed;
+		// the cleanup worker removes the staging object after expiry otherwise.
+		h.Log.Infow("presigned upload refused: quota exceeded", "repo", repo.Name, "path", up.Path, "upload_id", up.ID)
+		h.countUpload("rejected")
+		h.release(ctx, up.ID)
+
+		return CompletePresignedUploadResponse{}, failQuota()
 	case err != nil:
 		h.Log.Errorw("presigned upload: failed to record artifact", "repo", repo.Name, "path", up.Path, "error", err)
 		h.countUpload("failure")

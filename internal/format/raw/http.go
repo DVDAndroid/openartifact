@@ -25,6 +25,7 @@ import (
 	"github.com/openartifact/openartifact/internal/importmeta"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/urlparams"
@@ -163,6 +164,11 @@ func (h *HTTPHandler) handlePut(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, trash.ErrImmutableRelease) {
 			h.writeGuardError(w, err, "overwrite", path)
+			return
+		}
+
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
 			return
 		}
 
@@ -392,6 +398,10 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}, func() error {
 		if delErr := h.DB.DeleteRawArtifact(r.Context(), repoID, path); delErr != nil {
 			return fmt.Errorf("delete raw artifact: %w", delErr)
+		}
+
+		if relErr := quota.Release(r.Context(), h.DB, repoID, artifact.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
 		}
 
 		// The blob is content-addressed and may be shared; remove it only once

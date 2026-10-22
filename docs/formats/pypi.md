@@ -65,7 +65,7 @@ Package names are normalized (lowercase, each `_` and `.` becomes `-`) on upload
 - Metadata fields read: `name`, `version`, `filetype`, `pyversion`, `requires_python`, `summary`, `author`, `author_email`, `license`, `keywords`, `classifiers` (newline-separated).
 - `name` and `version` must be present, and the file name must belong to them (`<dist>-<version>.tar.gz`, or `<dist>-<version>-<tags>.whl` with `-` in the version written `_`); otherwise `400`. Names are normalized per PEP 503 (runs of `-_.` become one `-`).
 - A file name that already exists in the repository is `409 file already exists`: distributions are immutable, bump the version instead.
-- The uploaded file is read fully into memory to compute its SHA-256 and there is no explicit size cap on the upload; storage quotas are not enforced for PyPI.
+- The uploaded file is read fully into memory to compute its SHA-256 and there is no explicit size cap on the upload; the repository's [storage quota](../repositories/cleanup-and-quotas.md#what-counts) is enforced (`507` over quota).
 - Downloads of quarantined files are refused.
 
 ## Proxy and group

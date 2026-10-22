@@ -30,6 +30,7 @@ import (
 // returning every version of the packages on the page.
 type memDB struct {
 	*formattest.DB
+	quotaFake
 
 	pkgs []*models.NuGetPackage
 	// raceCreate makes GetNuGetPackage report "absent" even when the row

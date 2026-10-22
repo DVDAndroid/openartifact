@@ -21,6 +21,7 @@ import (
 	"github.com/openartifact/openartifact/internal/format/base"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/webhook"
@@ -192,9 +193,34 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.store(r.Context(), file, data); err != nil {
-		h.fail(w, "failed to store conan file", err, "path", s.resource()+"/"+s.filename)
+	// Reserve quota before anything is persisted; every failure path below
+	// returns the reservation.
+	if err := quota.Enforce(r.Context(), h.DB, s.repoID, file.SizeBytes); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
+			return
+		}
+
+		h.fail(w, "failed to reserve conan quota", err, "path", s.resource()+"/"+s.filename)
+
 		return
+	}
+
+	if err := h.store(r.Context(), file, data); err != nil {
+		if relErr := quota.Release(r.Context(), h.DB, s.repoID, file.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", s.repoName, "error", relErr)
+		}
+
+		h.fail(w, "failed to store conan file", err, "path", s.resource()+"/"+s.filename)
+
+		return
+	}
+
+	// The replaced row's usage is gone once the new content is in place.
+	if previous != nil {
+		if relErr := quota.Release(r.Context(), h.DB, s.repoID, previous.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "repo", s.repoName, "error", relErr)
+		}
 	}
 
 	// An overwrite leaves the previous content unreferenced.

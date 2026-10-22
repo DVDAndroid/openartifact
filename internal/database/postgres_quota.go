@@ -100,24 +100,42 @@ func (p *PostgresDB) DecrementStorageUsage(ctx context.Context, repoID string, s
 	return nil
 }
 
-// quotaUsageRowsSQL lists one row per stored package of every quota-enforced
-// format (the handlers that call Enforce on upload: deb, rpm, maven, helm,
-// npm, rubygems) with the blob it points at. A repository's usage is the sum of
-// those rows' blob sizes and their number. Blobs are deduplicated across rows
+// quotaUsageRowsSQL lists one row per stored package of every hosted format
+// (the handlers that call quota.Enforce on upload) with the blob it points at
+// and the number of artifacts it stands for (n). A repository's usage is the
+// sum of those rows' blob sizes and of n. Blobs are deduplicated across rows
 // and repositories, but a reservation is made per row at the row's full size,
 // so the sum deliberately counts a shared blob once per row.
+//
+// A Go module is one artifact with two blobs (zip and go.mod): the zip row
+// carries n = 1 and the go.mod row n = 0. Docker counts a manifest as one
+// artifact and every layer/config blob the repository holds (docker_blobs) as
+// bytes only (n = 0), so an image with many layers is one artifact. Proxy
+// caches are not metered: they have no rows in these tables.
 //
 // Soft-deleted rows (deleted_at set) are intentionally NOT filtered out: a
 // trashed package keeps its blob and its quota usage until it is purged, and
 // only the purge releases the quota. Filtering them here would make the
 // periodic reconcile hand back the usage of every item sitting in the trash.
 const quotaUsageRowsSQL = `
-SELECT repository_id, blob_id FROM deb_packages
-UNION ALL SELECT repository_id, blob_id FROM rpm_packages
-UNION ALL SELECT repository_id, blob_id FROM maven_artifacts
-UNION ALL SELECT repository_id, blob_id FROM helm_charts
-UNION ALL SELECT repository_id, blob_id FROM rubygems_gems
-UNION ALL SELECT p.repository_id, v.blob_id FROM npm_versions v JOIN npm_packages p ON p.id = v.package_id`
+SELECT repository_id, blob_id, 1 AS n FROM deb_packages
+UNION ALL SELECT repository_id, blob_id, 1 FROM rpm_packages
+UNION ALL SELECT repository_id, blob_id, 1 FROM maven_artifacts
+UNION ALL SELECT repository_id, blob_id, 1 FROM helm_charts
+UNION ALL SELECT repository_id, blob_id, 1 FROM rubygems_gems
+UNION ALL SELECT p.repository_id, v.blob_id, 1 FROM npm_versions v JOIN npm_packages p ON p.id = v.package_id
+UNION ALL SELECT repository_id, blob_id, 1 FROM pypi_packages
+UNION ALL SELECT repository_id, blob_id, 1 FROM cargo_crates
+UNION ALL SELECT repository_id, blob_id, 1 FROM nuget_packages
+UNION ALL SELECT repository_id, blob_id, 1 FROM conda_packages
+UNION ALL SELECT repository_id, blob_id, 1 FROM conan_packages
+UNION ALL SELECT repository_id, blob_id, 1 FROM ivy_artifacts
+UNION ALL SELECT repository_id, blob_id, 1 FROM sbt_artifacts
+UNION ALL SELECT repository_id, blob_id, 1 FROM raw_artifacts
+UNION ALL SELECT repository_id, zip_blob_id, 1 FROM gomod_modules
+UNION ALL SELECT repository_id, mod_blob_id, 0 FROM gomod_modules
+UNION ALL SELECT repository_id, blob_id, 1 FROM docker_manifests
+UNION ALL SELECT repository_id, blob_id, 0 FROM docker_blobs`
 
 // The reconcile statements rewrite the usage counters to the values computed
 // from the rows and return how many counters changed. Repositories with rows
@@ -130,7 +148,7 @@ const (
 WITH usage AS (
     SELECT r.repository_id,
            COALESCE(SUM(b.size_bytes), 0)::bigint AS size_bytes,
-           COUNT(*)::bigint AS artifacts
+           COALESCE(SUM(r.n), 0)::bigint AS artifacts
       FROM (` + quotaUsageRowsSQL + `) r
       LEFT JOIN blobs b ON b.id = r.blob_id`
 

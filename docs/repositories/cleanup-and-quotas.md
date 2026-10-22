@@ -38,7 +38,7 @@ At least one of `keep_last_n` or `keep_since_days` is required; zero or negative
 - Selected versions go through the same path as an API delete. With the default [trash](../operations/trash.md) retention they are **moved to the trash** (`deleted_at` is stamped; the audit entry says `moved to trash`): they disappear from the repository like any deleted item, can be restored, and keep their blob until the purge worker removes them. When the repository's `trash_retention_days` is `0` the row is deleted at once and each blob is removed from storage only if no other row still references it (blobs are deduplicated across repositories).
 - A repository with `immutable_releases` enabled never loses a released version to a policy: release versions are skipped (see [immutable releases](../operations/trash.md#immutable-releases)); only pre-releases and snapshots are eligible.
 - A package whose blob is referenced by a [release bundle](release-bundles.md) item is skipped and kept.
-- For deb, rpm and helm repositories, whose uploads count against the [storage quota](#storage-quotas), every row deleted permanently also gives its usage (its blob's size and one artifact) back to the repository's counters, in one update at the end of the run. Rows moved to the trash keep counting until they are purged (see [trash and quotas](#trash-and-quotas)). A row that an API delete removed between selection and deletion is skipped, so nothing is released twice. pypi, nuget and go uploads are not counted, so their runs release nothing.
+- Every row deleted permanently also gives its usage (its blob's size and one artifact) back to the repository's counters, in one update at the end of the run. Rows moved to the trash keep counting until they are purged (see [trash and quotas](#trash-and-quotas)). A row that an API delete removed between selection and deletion is skipped, so nothing is released twice. A Go module releases its zip and its `go.mod` together as one artifact.
 - There is no dry-run mode.
 
 ### API
@@ -75,7 +75,7 @@ Deleting a Docker tag (a tag moved to the [trash](../operations/trash.md) includ
 
 An admin can run it on demand, with a dry run, through `POST /api/v1/repositories/{repo}/registry-gc` (body `{"dry_run": bool, "grace_period_seconds": int}`, both optional; `409` while a run is in progress, `400` for a non-Docker repository). What is kept, the safety guarantees and the request and response format are in [Docker / OCI: garbage collection](../formats/docker.md#garbage-collection).
 
-Docker pushes are not counted against the repository quota (see [enforcement](#enforcement)), so registry garbage collection does not change the usage counters.
+Docker pushes are counted against the repository quota (see [what counts](#what-counts)), so registry garbage collection gives back the bytes of the blobs and the manifests it deletes.
 
 ## Storage quotas
 
@@ -93,7 +93,20 @@ The refusal is `507 Insufficient Storage`:
 
 Usage is the sum, over the repository's packages, of each package's blob size, plus one artifact per package. It is given back when a package is **permanently** deleted through the format or upload API (retention `0`, or when the [trash](#trash-and-quotas) purge worker removes it), when an upload is replaced (Maven snapshot overwrite) and when a [cleanup policy](#cleanup-policies) permanently deletes it. A blob that is shared by several packages (blobs are deduplicated) counts once per package, the same way the upload reserved it. A repository in the trash keeps its counters until it is purged, which removes them with it.
 
-Quotas are enforced on upload paths of these formats only: **Maven** (`/repos/maven/REPO`), **npm**, **Debian**, **RPM**, **Helm** and **RubyGems**. Uploads to the other formats (including Ivy and sbt, Docker, PyPI, Go, Cargo, NuGet, Conda, Conan and raw) neither check nor count against the quota, and their counters stay at 0. A yanked RubyGems version keeps counting: yanking hides it but the file is stored until the repository is deleted.
+### What counts
+
+Quotas are enforced on the upload paths of every **hosted** format: Maven (and Ivy and sbt), npm, Debian, RPM, Helm, RubyGems, PyPI, Cargo, Go, NuGet, Conda, Conan, raw and Docker. The unit is one stored row and the size of its blob:
+
+| Format | Counted as |
+|---|---|
+| Maven, Ivy, sbt, npm, deb, rpm, Helm, RubyGems, PyPI, Cargo, NuGet, Conda, raw | one artifact per file/version row, with its file size. Replacing a raw file, a Maven snapshot or a Conan file releases the previous content. |
+| Conan | one artifact per stored file (recipe files and package files each count). |
+| Go | one artifact per module version, with the size of its zip plus its `go.mod`. |
+| Docker | the bytes of every blob (layer or config) the repository holds, **without** an artifact slot, plus one artifact with the manifest's size per manifest. An image with many layers is therefore one artifact, and a layer shared by several images of the repository, or pushed or mounted again into it, counts once. A blob mounted from another repository counts in the destination repository. Tags are free. |
+
+Docker bytes are reserved when a blob upload completes (or a mount creates the repository's blob record) and when a manifest is first stored; an upload session that never completes reserves nothing. They are released when a manifest is deleted for good (retention `0`, or the [trash](#trash-and-quotas) purge), when a blob is deleted through the blob API, and when [registry garbage collection](#docker-registry-garbage-collection) removes untagged manifests and unreferenced blobs. A manifest moved to the trash keeps its usage, like every other format.
+
+Not metered: **proxy** repositories (their cached upstream content is a cache, evicted by its own policies) and **group** repositories (they hold nothing). Only hosted repositories have counters. A yanked RubyGems version or Cargo crate keeps counting: yanking hides it but the file is stored until the repository is deleted. Raw files uploaded with [presigned uploads](../operations/storage.md#presigned-uploads) are counted when the upload is completed, i.e. after the bytes reached the bucket; an over-quota completion is refused (`507`), records nothing and leaves the upload pending until it expires.
 
 ### Trash and quotas
 

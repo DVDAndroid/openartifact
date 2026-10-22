@@ -52,6 +52,8 @@ curl -X PUT -H "Authorization: Bearer <TOKEN>" --data-binary @v1.0.0.zip \
 
 `PUT /repos/REPO/*` is shared with npm publish: `cmd/server/main.go` sends the request to the Go handler when the tail has the form `<module>/@v/<file>` (not `@latest`), otherwise to npm.
 
+The [storage quota](../repositories/cleanup-and-quotas.md#what-counts) is enforced on upload (`507` over quota); a module version counts as one artifact with the size of its zip plus its `go.mod`, and a [cleanup policy](../repositories/cleanup-and-quotas.md#cleanup-policies) or the trash purge releases both.
+
 ## Validation
 
 - Body limit 100 MiB (`413` above it).

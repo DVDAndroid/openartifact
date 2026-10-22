@@ -20,7 +20,8 @@ import (
 // CreateDockerBlob upserts the blob's content into the global blobs table
 // (docker_blobs.blob_id FKs into blobs, which holds the media type, size
 // and sha256) and inserts the per-repo
-// docker_blobs registry row referencing it.
+// docker_blobs registry row referencing it. blob.Inserted reports whether the
+// repository's row is new (false: it already held the blob).
 func (p *PostgresDB) CreateDockerBlob(ctx context.Context, blob *models.DockerBlob) error {
 	blobID, err := p.upsertBlobWithMediaType(ctx, blob.BlobSHA256, blob.BlobSHA256, blob.MediaType, blob.Size)
 	if err != nil {
@@ -64,6 +65,7 @@ func (p *PostgresDB) CreateDockerBlob(ctx context.Context, blob *models.DockerBl
 
 	blob.ID = row.ID
 	blob.CreatedAt = row.CreatedAt
+	blob.Inserted = row.Inserted
 
 	return nil
 }
@@ -133,12 +135,24 @@ func (p *PostgresDB) GetDockerBlob(ctx context.Context, repoID, digest string) (
 	}, nil
 }
 
+// ErrDockerRowNotFound is returned by DeleteDockerBlob and DeleteDockerManifest
+// when no row matched: a concurrent request removed it first. Callers release
+// the row's storage quota only when the delete removed it.
+var ErrDockerRowNotFound = errors.New("docker row not found")
+
+// DeleteDockerBlob removes the repository's row for the blob and returns
+// ErrDockerRowNotFound when there was none.
 func (p *PostgresDB) DeleteDockerBlob(ctx context.Context, repoID, digest string) error {
-	if err := p.q.DeleteDockerBlob(ctx, dbsqlc.DeleteDockerBlobParams{
+	n, err := p.q.DeleteDockerBlob(ctx, dbsqlc.DeleteDockerBlobParams{
 		RepositoryID: repoID,
 		Digest:       digest,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to delete docker blob: %w", err)
+	}
+
+	if n == 0 {
+		return ErrDockerRowNotFound
 	}
 
 	return nil
@@ -265,7 +279,8 @@ var ErrDockerBlobsMissing = errors.New("manifest references a blob that is not a
 // references of the manifest body are recorded in the same transaction, under
 // the shared per-repository docker lock that registry GC takes exclusively
 // before it deletes anything: GC then sees either none of this push or all of
-// it, never a manifest whose references it cannot see yet.
+// it, never a manifest whose references it cannot see yet. m.Inserted reports
+// whether the live row is new (false: a re-push refreshed the existing one).
 func (p *PostgresDB) CreateDockerManifest(ctx context.Context, m *models.DockerManifest) error {
 	params := dbsqlc.CreateDockerManifestParams{
 		RepositoryID: m.RepositoryID,
@@ -286,6 +301,7 @@ func (p *PostgresDB) CreateDockerManifest(ctx context.Context, m *models.DockerM
 		m.ID = row.ID
 		m.CreatedAt = row.CreatedAt
 		m.UpdatedAt = row.UpdatedAt
+		m.Inserted = row.Inserted
 
 		return nil
 	}
@@ -336,6 +352,7 @@ func (p *PostgresDB) CreateDockerManifest(ctx context.Context, m *models.DockerM
 	m.ID = row.ID
 	m.CreatedAt = row.CreatedAt
 	m.UpdatedAt = row.UpdatedAt
+	m.Inserted = row.Inserted
 
 	return nil
 }
@@ -449,13 +466,20 @@ func (p *PostgresDB) ListDockerManifestsBySubject(ctx context.Context, repoID, i
 	return manifests, nil
 }
 
+// DeleteDockerManifest permanently removes the live manifest row and returns
+// ErrDockerRowNotFound when there was none.
 func (p *PostgresDB) DeleteDockerManifest(ctx context.Context, repoID, image, digest string) error {
-	if err := p.q.DeleteDockerManifest(ctx, dbsqlc.DeleteDockerManifestParams{
+	n, err := p.q.DeleteDockerManifest(ctx, dbsqlc.DeleteDockerManifestParams{
 		RepositoryID: repoID,
 		Image:        image,
 		Digest:       digest,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to delete docker manifest: %w", err)
+	}
+
+	if n == 0 {
+		return ErrDockerRowNotFound
 	}
 
 	return nil

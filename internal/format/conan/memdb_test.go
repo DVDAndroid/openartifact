@@ -20,6 +20,7 @@ import (
 // that advances one second per write so "latest" is deterministic.
 type conanDB struct {
 	*formattest.DB
+	quotaFake
 
 	mu    sync.Mutex
 	rows  []*models.ConanPackage

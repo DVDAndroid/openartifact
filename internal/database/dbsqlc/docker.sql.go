@@ -61,7 +61,7 @@ INSERT INTO docker_blobs (repository_id, digest, blob_id, size_bytes)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (repository_id, digest) DO UPDATE SET blob_id = EXCLUDED.blob_id, last_used_at = now(),
     size_bytes = COALESCE(docker_blobs.size_bytes, EXCLUDED.size_bytes)
-RETURNING id, created_at
+RETURNING id, created_at, (xmax = 0) AS inserted
 `
 
 type CreateDockerBlobParams struct {
@@ -74,9 +74,12 @@ type CreateDockerBlobParams struct {
 type CreateDockerBlobRow struct {
 	ID        string    `db:"id" json:"id"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	Inserted  bool      `db:"inserted" json:"inserted"`
 }
 
 // Re-pushing a blob the repository already holds is a no-op, not an error.
+// inserted tells a new row (which the caller has reserved quota for) from the
+// refresh of an existing one: xmax is 0 only on a row this statement inserted.
 func (q *Queries) CreateDockerBlob(ctx context.Context, arg CreateDockerBlobParams) (CreateDockerBlobRow, error) {
 	row := q.db.QueryRow(ctx, createDockerBlob,
 		arg.RepositoryID,
@@ -85,7 +88,7 @@ func (q *Queries) CreateDockerBlob(ctx context.Context, arg CreateDockerBlobPara
 		arg.SizeBytes,
 	)
 	var i CreateDockerBlobRow
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.Inserted)
 	return i, err
 }
 
@@ -95,7 +98,7 @@ VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
 ON CONFLICT (repository_id, image, digest) WHERE deleted_at IS NULL DO UPDATE
     SET media_type = EXCLUDED.media_type, blob_id = EXCLUDED.blob_id, size = EXCLUDED.size,
         subject_digest = EXCLUDED.subject_digest, updated_at = now()
-RETURNING id, created_at, updated_at
+RETURNING id, created_at, updated_at, (xmax = 0) AS inserted
 `
 
 type CreateDockerManifestParams struct {
@@ -112,6 +115,7 @@ type CreateDockerManifestRow struct {
 	ID        string    `db:"id" json:"id"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	Inserted  bool      `db:"inserted" json:"inserted"`
 }
 
 // Re-pushing a manifest already stored for the image is a no-op refresh, not
@@ -128,7 +132,12 @@ func (q *Queries) CreateDockerManifest(ctx context.Context, arg CreateDockerMani
 		arg.Column7,
 	)
 	var i CreateDockerManifestRow
-	err := row.Scan(&i.ID, &i.CreatedAt, &i.UpdatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Inserted,
+	)
 	return i, err
 }
 
@@ -157,7 +166,7 @@ func (q *Queries) CreateDockerUpload(ctx context.Context, arg CreateDockerUpload
 	return i, err
 }
 
-const deleteDockerBlob = `-- name: DeleteDockerBlob :exec
+const deleteDockerBlob = `-- name: DeleteDockerBlob :execrows
 DELETE FROM docker_blobs WHERE repository_id = $1 AND digest = $2
 `
 
@@ -166,9 +175,12 @@ type DeleteDockerBlobParams struct {
 	Digest       string `db:"digest" json:"digest"`
 }
 
-func (q *Queries) DeleteDockerBlob(ctx context.Context, arg DeleteDockerBlobParams) error {
-	_, err := q.db.Exec(ctx, deleteDockerBlob, arg.RepositoryID, arg.Digest)
-	return err
+func (q *Queries) DeleteDockerBlob(ctx context.Context, arg DeleteDockerBlobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDockerBlob, arg.RepositoryID, arg.Digest)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteDockerBlobsForGC = `-- name: DeleteDockerBlobsForGC :many
@@ -228,7 +240,7 @@ func (q *Queries) DeleteDockerBlobsForGC(ctx context.Context, arg DeleteDockerBl
 	return items, nil
 }
 
-const deleteDockerManifest = `-- name: DeleteDockerManifest :exec
+const deleteDockerManifest = `-- name: DeleteDockerManifest :execrows
 DELETE FROM docker_manifests WHERE repository_id = $1 AND image = $2 AND digest = $3 AND deleted_at IS NULL
 `
 
@@ -239,9 +251,12 @@ type DeleteDockerManifestParams struct {
 }
 
 // Permanent delete of a live manifest (retention 0 path); trashed rows are left to purge.
-func (q *Queries) DeleteDockerManifest(ctx context.Context, arg DeleteDockerManifestParams) error {
-	_, err := q.db.Exec(ctx, deleteDockerManifest, arg.RepositoryID, arg.Image, arg.Digest)
-	return err
+func (q *Queries) DeleteDockerManifest(ctx context.Context, arg DeleteDockerManifestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDockerManifest, arg.RepositoryID, arg.Image, arg.Digest)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteDockerManifestsForGC = `-- name: DeleteDockerManifestsForGC :many

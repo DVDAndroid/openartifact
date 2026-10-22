@@ -27,8 +27,12 @@ const testModule = "github.com/example/mymodule"
 // the database does: the handler, not the query, ranks versions.
 type gomodDB struct {
 	*formattest.DB
+	quotaFake
 
 	mods []*models.GoModule
+
+	// createErr, when set, is returned by CreateGoModule.
+	createErr error
 
 	// zipBlobs maps a ZipHash to the blob key of the first zip stored under it:
 	// the blobs table is unique per digest, so CreateGoModule's upsert hands
@@ -37,6 +41,10 @@ type gomodDB struct {
 }
 
 func (d *gomodDB) CreateGoModule(_ context.Context, m *models.GoModule) error {
+	if d.createErr != nil {
+		return d.createErr
+	}
+
 	if d.zipBlobs == nil {
 		d.zipBlobs = map[string]string{}
 	}

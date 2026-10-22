@@ -24,6 +24,7 @@ import (
 	"github.com/openartifact/openartifact/internal/licensepolicy"
 	"github.com/openartifact/openartifact/internal/presign"
 	"github.com/openartifact/openartifact/internal/quarantine"
+	"github.com/openartifact/openartifact/internal/quota"
 	"github.com/openartifact/openartifact/internal/storage"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/urlparams"
@@ -217,6 +218,20 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request, repoI
 		}
 	}
 
+	// Reserve quota before anything is persisted; every failure path below
+	// returns the reservation.
+	if err := quota.Enforce(r.Context(), h.DB, repoID, artifact.SizeBytes); err != nil {
+		if errors.Is(err, quota.ErrExceeded) {
+			quota.WriteExceeded(w)
+			return
+		}
+
+		h.Log.Errorw("failed to reserve quota", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	// Store the blob and insert the referencing row under the per-blob lock so
 	// a concurrent unpublish cannot delete the blob in between.
 	if err := storage.WithBlobLock(r.Context(), h.DB, sha256Hex, func(ctx context.Context) error {
@@ -237,10 +252,21 @@ func (h *HTTPHandler) handleUpload(w http.ResponseWriter, r *http.Request, repoI
 
 		return nil
 	}); err != nil {
+		if relErr := quota.Release(r.Context(), h.DB, repoID, artifact.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "error", relErr)
+		}
+
 		h.Log.Errorw("failed to store sbt artifact", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
+	}
+
+	// The replaced row's usage is gone once the new content is in place.
+	if previous != nil {
+		if relErr := quota.Release(r.Context(), h.DB, repoID, previous.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "error", relErr)
+		}
 	}
 
 	// The replaced bytes are content-addressed and may be shared; drop them only
@@ -318,6 +344,10 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request, repoI
 	}, func() error {
 		if delErr := h.DB.DeleteSBTArtifact(r.Context(), artifact.ID); delErr != nil {
 			return delErr
+		}
+
+		if relErr := quota.Release(r.Context(), h.DB, repoID, artifact.SizeBytes); relErr != nil {
+			h.Log.Warnw("failed to release quota", "error", relErr)
 		}
 
 		// The blob is content-addressed and may be shared; remove it only once no

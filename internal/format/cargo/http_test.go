@@ -117,6 +117,7 @@ func TestTransformCargoIndexDepsNilOrMalformed(t *testing.T) {
 // case-insensitively, as the SQL queries do.
 type cargoDB struct {
 	*formattest.DB
+	quotaFake
 
 	crates []*models.CargoCrate
 

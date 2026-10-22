@@ -6,7 +6,26 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Supporto Android APK: piano
 
-Stato: **proposta, nulla è implementato.** Questa è una pagina di lavoro. Quando una fase è completata, il contenuto passa in `docs/formats/android.md` e questa pagina si accorcia.
+Stato: **fase 0 e backend della fase 1 completati; frontend, bundle, CLI e indice F-Droid da fare.** Questa è una pagina di lavoro. Quando una fase è completata, il contenuto passa in `docs/formats/android.md` e questa pagina si accorcia.
+
+### Stato dell'implementazione
+
+Fatto e verificato (test di integrazione su Postgres 18; upload di 7 APK reali di F-Droid con fingerprint identici a `apksigner`; ri-firma di un APK reale con `apksigner` e upload con originale):
+
+- `pkg/apk` (parser, firme v1-v3.1, icone, titoli, ELF) e `pkg/apk/apktest`.
+- Migration `900_android.sql` + `900_android_indexes.no_tx.sql`, store in `internal/database/postgres_android{apps,misc}.go`, modelli in `models/android.go`.
+- `internal/android`: upload (con `original` e `parent`), inspect, download, `latest.apk`/`latest.json`/`index.json`, app e versioni, icone, file collegati, chiavi note con policy per app, tag, note.
+- Punti di contatto (un commit `seam(android):` ciascuno): `blobRefSpecs`, frammento OpenAPI, `validFormats`, `repoDataSegments`, `main.go`.
+- `docs/formats/android.md`.
+
+Deviazioni dal piano:
+
+- **Eliminazione definitiva**, senza `deleted_at`: `TestTrashSpecsCoverEveryDeletedAtTable` impone che ogni tabella con quella colonna sia in `trashSpecs`. Il cestino è un lavoro della fase 7 (con una nuova migration).
+- **OpenAPI**: l'API è descritta in `internal/android/openapi.json` e fusa all'avvio da `internal/api/openapi_fragments.go`; `openapi.json` non cambia. Il test di coerenza delle route registra anche l'handler android.
+- **Download a nome esatto**: `<package>-<versionCode>-<8 hex del firmatario>.apk`; un nome che non coincide dà 404, mai il file di un'altra chiave.
+- **Avvisi sul firmatario**: il primo `original` di un'app non avvisa; una chiave nuova per un'app già firmata sì (vedi `internal/android/policy.go`).
+- I file Go non devono finire in `_android.go`: Go lo tratta come vincolo `GOOS=android` e il file non compila su Linux.
+- Un'importazione da URL (`POST import`) e `GET diff` non ci sono ancora.
 
 ## 1. Obiettivo e caso d'uso
 

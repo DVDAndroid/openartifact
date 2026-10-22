@@ -282,6 +282,83 @@ func projectJSON(t *testing.T, router http.Handler, userID, method, target, body
 	return rw.Code, out
 }
 
+func checkCreateDefaults(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if p.RepoNamePrefix != "my-proj-" || p.MaxRepositories != 50 || p.TokenMaxTTLDays != 365 {
+		t.Errorf("defaults = prefix %q max %d ttl %d", p.RepoNamePrefix, p.MaxRepositories, p.TokenMaxTTLDays)
+	}
+
+	if !slices.Equal(p.AllowedRepoTypes, []string{models.ProjectRepoTypeHosted}) {
+		t.Errorf("allowed_repo_types = %v, want [hosted]", p.AllowedRepoTypes)
+	}
+
+	if p.AllowedFormats != nil || p.AllowPublicRepos {
+		t.Errorf("allowed_formats = %v public = %v, want nil/false", p.AllowedFormats, p.AllowPublicRepos)
+	}
+
+	if p.OwnerID == nil || *p.OwnerID != "admin-1" {
+		t.Errorf("owner = %v, want admin-1", p.OwnerID)
+	}
+}
+
+func checkCreateWithPolicy(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if !slices.Equal(p.AllowedFormats, []string{"go", "raw"}) || !slices.Equal(p.AllowedRepoTypes, []string{"hosted", "proxy"}) {
+		t.Errorf("lists = %v / %v", p.AllowedFormats, p.AllowedRepoTypes)
+	}
+
+	if p.RepoNamePrefix != "team_" || !p.AllowPublicRepos || p.MaxRepositories != 3 || p.TokenMaxTTLDays != 0 {
+		t.Errorf("policy = %+v", p)
+	}
+}
+
+func checkNilFormats(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if p.AllowedFormats != nil {
+		t.Errorf("allowed_formats = %#v, want nil", p.AllowedFormats)
+	}
+}
+
+func checkEmptyPrefix(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if p.RepoNamePrefix != "" {
+		t.Errorf("prefix = %q, want empty", p.RepoNamePrefix)
+	}
+}
+
+func checkDisplayNameNew(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if p.DisplayName == nil || *p.DisplayName != "New" {
+		t.Errorf("display_name = %v", p.DisplayName)
+	}
+}
+
+func checkUpdateKeepsOmitted(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if *p.Description != "d" || *p.DisplayName != "Acme" {
+		t.Errorf("description/display = %q/%q", *p.Description, *p.DisplayName)
+	}
+
+	if !slices.Equal(p.AllowedFormats, []string{"maven"}) || p.RepoNamePrefix != "acme-" || p.MaxRepositories != 10 || p.TokenMaxTTLDays != 30 {
+		t.Errorf("policy changed: %+v", p)
+	}
+}
+
+func checkAdminPolicyUpdate(t *testing.T, p *models.Project) {
+	t.Helper()
+
+	if !slices.Equal(p.AllowedFormats, []string{"raw", "go"}) || !slices.Equal(p.AllowedRepoTypes, []string{"hosted", "group"}) ||
+		p.RepoNamePrefix != "" || !p.AllowPublicRepos || p.MaxRepositories != 0 || p.TokenMaxTTLDays != 7 {
+		t.Errorf("policy = %+v", p)
+	}
+}
+
 func TestProjectsCreatePolicy(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -289,60 +366,13 @@ func TestProjectsCreatePolicy(t *testing.T) {
 		wantStatus int
 		check      func(t *testing.T, p *models.Project)
 	}{
-		{
-			"defaults", `{"name":"My_Proj"}`, http.StatusCreated,
-			func(t *testing.T, p *models.Project) {
-				t.Helper()
-
-				if p.RepoNamePrefix != "my-proj-" || p.MaxRepositories != 50 || p.TokenMaxTTLDays != 365 {
-					t.Errorf("defaults = prefix %q max %d ttl %d", p.RepoNamePrefix, p.MaxRepositories, p.TokenMaxTTLDays)
-				}
-
-				if !slices.Equal(p.AllowedRepoTypes, []string{models.ProjectRepoTypeHosted}) {
-					t.Errorf("allowed_repo_types = %v, want [hosted]", p.AllowedRepoTypes)
-				}
-
-				if p.AllowedFormats != nil || p.AllowPublicRepos {
-					t.Errorf("allowed_formats = %v public = %v, want nil/false", p.AllowedFormats, p.AllowPublicRepos)
-				}
-
-				if p.OwnerID == nil || *p.OwnerID != "admin-1" {
-					t.Errorf("owner = %v, want admin-1", p.OwnerID)
-				}
-			},
-		},
+		{"defaults", `{"name":"My_Proj"}`, http.StatusCreated, checkCreateDefaults},
 		{
 			"with policy", `{"name":"x","allowed_formats":["go","raw","go"],"allowed_repo_types":["hosted","proxy"],"repo_name_prefix":"team_","allow_public_repos":true,"max_repositories":3,"token_max_ttl_days":0}`,
-			http.StatusCreated,
-			func(t *testing.T, p *models.Project) {
-				t.Helper()
-
-				if !slices.Equal(p.AllowedFormats, []string{"go", "raw"}) || !slices.Equal(p.AllowedRepoTypes, []string{"hosted", "proxy"}) {
-					t.Errorf("lists = %v / %v", p.AllowedFormats, p.AllowedRepoTypes)
-				}
-
-				if p.RepoNamePrefix != "team_" || !p.AllowPublicRepos || p.MaxRepositories != 3 || p.TokenMaxTTLDays != 0 {
-					t.Errorf("policy = %+v", p)
-				}
-			},
+			http.StatusCreated, checkCreateWithPolicy,
 		},
-		{
-			"empty allowed_formats means every format", `{"name":"x","allowed_formats":[]}`, http.StatusCreated,
-			func(t *testing.T, p *models.Project) {
-				t.Helper()
-
-				if p.AllowedFormats != nil {
-					t.Errorf("allowed_formats = %#v, want nil", p.AllowedFormats)
-				}
-			},
-		},
-		{"empty prefix allowed", `{"name":"x","repo_name_prefix":""}`, http.StatusCreated, func(t *testing.T, p *models.Project) {
-			t.Helper()
-
-			if p.RepoNamePrefix != "" {
-				t.Errorf("prefix = %q, want empty", p.RepoNamePrefix)
-			}
-		}},
+		{"empty allowed_formats means every format", `{"name":"x","allowed_formats":[]}`, http.StatusCreated, checkNilFormats},
+		{"empty prefix allowed", `{"name":"x","repo_name_prefix":""}`, http.StatusCreated, checkEmptyPrefix},
 		{"unknown format", `{"name":"x","allowed_formats":["gomod"]}`, http.StatusBadRequest, nil},
 		{"empty repo types", `{"name":"x","allowed_repo_types":[]}`, http.StatusBadRequest, nil},
 		{"invalid repo type", `{"name":"x","allowed_repo_types":["virtual"]}`, http.StatusBadRequest, nil},
@@ -444,26 +474,10 @@ func TestProjectsUpdatePolicy(t *testing.T) {
 		wantStatus    int
 		check         func(t *testing.T, p *models.Project)
 	}{
-		{"owner display_name ok", "owner-1", true, `{"display_name":"New"}`, http.StatusOK, func(t *testing.T, p *models.Project) {
-			t.Helper()
-
-			if p.DisplayName == nil || *p.DisplayName != "New" {
-				t.Errorf("display_name = %v", p.DisplayName)
-			}
-		}},
+		{"owner display_name ok", "owner-1", true, `{"display_name":"New"}`, http.StatusOK, checkDisplayNameNew},
 		{"maintainer display_name ok", "maint-1", true, `{"display_name":"New"}`, http.StatusOK, nil},
 		{"no evaluator display_name ok", "owner-1", false, `{"display_name":"New"}`, http.StatusOK, nil},
-		{"update keeps omitted fields", "owner-1", true, `{"description":"d"}`, http.StatusOK, func(t *testing.T, p *models.Project) {
-			t.Helper()
-
-			if *p.Description != "d" || *p.DisplayName != "Acme" {
-				t.Errorf("description/display = %q/%q", *p.Description, *p.DisplayName)
-			}
-
-			if !slices.Equal(p.AllowedFormats, []string{"maven"}) || p.RepoNamePrefix != "acme-" || p.MaxRepositories != 10 || p.TokenMaxTTLDays != 30 {
-				t.Errorf("policy changed: %+v", p)
-			}
-		}},
+		{"update keeps omitted fields", "owner-1", true, `{"description":"d"}`, http.StatusOK, checkUpdateKeepsOmitted},
 		{"owner member policy 403 (allowed_formats)", "owner-1", true, `{"allowed_formats":["raw"]}`, http.StatusForbidden, nil},
 		{"owner member policy 403 (repo types)", "owner-1", true, `{"allowed_repo_types":["proxy"]}`, http.StatusForbidden, nil},
 		{"owner member policy 403 (prefix)", "owner-1", true, `{"repo_name_prefix":"x-"}`, http.StatusForbidden, nil},
@@ -476,22 +490,8 @@ func TestProjectsUpdatePolicy(t *testing.T) {
 		{"developer 403", "dev-1", true, `{"display_name":"x"}`, http.StatusForbidden, nil},
 		{"viewer 403", "view-1", true, `{"display_name":"x"}`, http.StatusForbidden, nil},
 		{"outsider 403", "newbie", true, `{"display_name":"x"}`, http.StatusForbidden, nil},
-		{"admin non-member policy ok", "admin-1", true, `{"allowed_formats":["raw","go"],"allowed_repo_types":["hosted","group"],"repo_name_prefix":"","allow_public_repos":true,"max_repositories":0,"token_max_ttl_days":7}`, http.StatusOK,
-			func(t *testing.T, p *models.Project) {
-				t.Helper()
-
-				if !slices.Equal(p.AllowedFormats, []string{"raw", "go"}) || !slices.Equal(p.AllowedRepoTypes, []string{"hosted", "group"}) ||
-					p.RepoNamePrefix != "" || !p.AllowPublicRepos || p.MaxRepositories != 0 || p.TokenMaxTTLDays != 7 {
-					t.Errorf("policy = %+v", p)
-				}
-			}},
-		{"admin empty allowed_formats stores nil", "admin-1", true, `{"allowed_formats":[]}`, http.StatusOK, func(t *testing.T, p *models.Project) {
-			t.Helper()
-
-			if p.AllowedFormats != nil {
-				t.Errorf("allowed_formats = %#v, want nil", p.AllowedFormats)
-			}
-		}},
+		{"admin non-member policy ok", "admin-1", true, `{"allowed_formats":["raw","go"],"allowed_repo_types":["hosted","group"],"repo_name_prefix":"","allow_public_repos":true,"max_repositories":0,"token_max_ttl_days":7}`, http.StatusOK, checkAdminPolicyUpdate},
+		{"admin empty allowed_formats stores nil", "admin-1", true, `{"allowed_formats":[]}`, http.StatusOK, checkNilFormats},
 		{"admin unknown format 400", "admin-1", true, `{"allowed_formats":["nope"]}`, http.StatusBadRequest, nil},
 		{"admin empty repo types 400", "admin-1", true, `{"allowed_repo_types":[]}`, http.StatusBadRequest, nil},
 		{"admin bad repo type 400", "admin-1", true, `{"allowed_repo_types":["x"]}`, http.StatusBadRequest, nil},
@@ -821,7 +821,6 @@ func TestProjectsGroupsList(t *testing.T) {
 }
 
 func TestProjectsSetGroup(t *testing.T) {
-
 	tests := []struct {
 		name     string
 		user     string

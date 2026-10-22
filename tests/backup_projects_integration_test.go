@@ -37,13 +37,18 @@ func newBackupEngine(t *testing.T, db database.Database) *backup.Engine {
 	return backup.NewEngine(db, blobs, log, filepath.Join(dir, "backups"))
 }
 
-// TestBackupRestore_ProjectsRealDB backs up projects with policy fields,
-// members, group attachments and repositories on one real database and
-// restores them into another one: ids are remapped, nothing is lost.
-func TestBackupRestore_ProjectsRealDB(t *testing.T) {
+// realProjectsSeed is what TestBackupRestore_ProjectsRealDB puts in the source.
+type realProjectsSeed struct {
+	acme    *models.Project
+	team    *models.Group
+	owner   *models.User
+	formats []string
+}
+
+func seedRealProjects(t *testing.T, src *database.PostgresDB) realProjectsSeed {
+	t.Helper()
+
 	ctx := context.Background()
-	src := freshPostgres(t, 5)
-	dst := freshPostgres(t, 5)
 
 	owner, err := src.CreateUser(ctx, &models.User{Username: "bk-owner"})
 	if err != nil {
@@ -83,6 +88,14 @@ func TestBackupRestore_ProjectsRealDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	return realProjectsSeed{acme: acme, team: team, owner: owner, formats: formats}
+}
+
+func backupAndRestore(t *testing.T, src, dst *database.PostgresDB) {
+	t.Helper()
+
+	ctx := context.Background()
+
 	job := &models.BackupJob{Status: "pending", Type: "full"}
 	if err := src.CreateBackupJob(ctx, job); err != nil {
 		t.Fatal(err)
@@ -100,13 +113,19 @@ func TestBackupRestore_ProjectsRealDB(t *testing.T) {
 	if err := newBackupEngine(t, dst).RunRestore(ctx, done.StoragePath); err != nil {
 		t.Fatalf("RunRestore: %v", err)
 	}
+}
+
+func assertRealProjectPolicy(t *testing.T, dst *database.PostgresDB, seed realProjectsSeed) (*models.Project, *models.User) {
+	t.Helper()
+
+	ctx := context.Background()
 
 	got, err := dst.GetProjectByName(ctx, "bk-acme")
 	if err != nil || got == nil {
 		t.Fatalf("project not restored: %v", err)
 	}
 
-	if got.ID == acme.ID || got.Slug != "bk-acme" || !slices.Equal(got.AllowedFormats, formats) ||
+	if got.ID == seed.acme.ID || got.Slug != "bk-acme" || !slices.Equal(got.AllowedFormats, seed.formats) ||
 		!slices.Equal(got.AllowedRepoTypes, []string{"hosted", "proxy"}) || got.RepoNamePrefix != "bk-acme-" ||
 		!got.AllowPublicRepos || got.MaxRepositories != 7 || got.TokenMaxTTLDays != 30 {
 		t.Fatalf("restored project = %+v", got)
@@ -116,6 +135,14 @@ func TestBackupRestore_ProjectsRealDB(t *testing.T) {
 	if err != nil || newOwner == nil || got.OwnerID == nil || *got.OwnerID != newOwner.ID {
 		t.Fatalf("owner not remapped: %v (project owner %v)", err, got.OwnerID)
 	}
+
+	return got, newOwner
+}
+
+func assertRealProjectAccess(t *testing.T, dst *database.PostgresDB, got *models.Project, newOwner *models.User, seed realProjectsSeed) {
+	t.Helper()
+
+	ctx := context.Background()
 
 	newDev, err := dst.GetUserByUsername(ctx, "bk-dev")
 	if err != nil || newDev == nil {
@@ -128,7 +155,7 @@ func TestBackupRestore_ProjectsRealDB(t *testing.T) {
 	}
 
 	groups, err := dst.ListProjectGroups(ctx, got.ID)
-	if err != nil || len(groups) != 1 || groups[0].Role != models.ProjectRoleMaintainer || groups[0].GroupName != "bk-team" || groups[0].GroupID == team.ID {
+	if err != nil || len(groups) != 1 || groups[0].Role != models.ProjectRoleMaintainer || groups[0].GroupName != "bk-team" || groups[0].GroupID == seed.team.ID {
 		t.Fatalf("project groups = %+v, %v; want bk-team maintainer with a new group id", groups, err)
 	}
 
@@ -140,4 +167,18 @@ func TestBackupRestore_ProjectsRealDB(t *testing.T) {
 	if err != nil || restored == nil || restored.ProjectID == nil || *restored.ProjectID != got.ID {
 		t.Fatalf("repository = %+v, %v; want moved into the restored project", restored, err)
 	}
+}
+
+// TestBackupRestore_ProjectsRealDB backs up projects with policy fields,
+// members, group attachments and repositories on one real database and
+// restores them into another one: ids are remapped, nothing is lost.
+func TestBackupRestore_ProjectsRealDB(t *testing.T) {
+	src := freshPostgres(t, 5)
+	dst := freshPostgres(t, 5)
+
+	seed := seedRealProjects(t, src)
+	backupAndRestore(t, src, dst)
+
+	got, newOwner := assertRealProjectPolicy(t, dst, seed)
+	assertRealProjectAccess(t, dst, got, newOwner, seed)
 }

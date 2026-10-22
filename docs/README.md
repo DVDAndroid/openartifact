@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # OpenArtifact documentation
 
-Self-hosted artifact repository for 16 package formats. The [project README](../README.md) is the short overview; the details are here.
+Self-hosted artifact repository for 17 package formats. The [project README](../README.md) is the short overview; the details are here.
 
 ## Getting started
 
@@ -25,6 +25,7 @@ Self-hosted artifact repository for 16 package formats. The [project README](../
 | [Helm](formats/helm.md) · [Debian](formats/debian.md) · [RPM](formats/rpm.md) · [Go](formats/go.md) | Client setup and publishing |
 | [Cargo](formats/cargo.md) · [NuGet](formats/nuget.md) · [RubyGems](formats/rubygems.md) · [Conda](formats/conda.md) | Client setup and publishing |
 | [Conan](formats/conan.md) · [Ivy and sbt](formats/ivy-sbt.md) · [Raw](formats/raw.md) | Client setup and publishing |
+| [Android (APK)](formats/android.md) | Signer and provenance tracking for APK files; upload, download and management API |
 
 ## Repositories
 

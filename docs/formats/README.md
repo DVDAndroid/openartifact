@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Package formats
 
-OpenArtifact serves 16 package formats natively, each on the URL its client expects, behind one permission model.
+OpenArtifact serves 17 package formats natively, each on the URL its client expects, behind one permission model.
 
 ## URL conventions
 
@@ -39,6 +39,7 @@ Replace `HOST` with your server (for example `http://localhost:8080`) and `REPO`
 | RubyGems | `rubygems` | `HOST/repos/REPO/` | hosted | `gem push` (`POST /api/v1/gems`) | [rubygems](rubygems.md) |
 | Conda | `conda` | `HOST/repos/REPO/<platform>/repodata.json` | hosted | `POST /<platform>` with `X-Filename` | [conda](conda.md) |
 | Conan (v2) | `conan` | `HOST/repos/REPO/` (`v2/conans/...`) | hosted | `conan upload` | [conan](conan.md) |
+| Android (APK) | `android` | `HOST/repos/REPO/apps/<package>/` (`latest.apk`, `latest.json`) | hosted | `POST /api/v1/repositories/REPO/apks` (multipart) | [android](android.md) |
 
 Proxy repositories exist for Maven, Debian, RPM, Docker and raw; group repositories for Maven, Docker and raw. Creating any other combination is rejected with `400 validation_failed`. Proxy and group repositories are read-only: writes answer `405`.
 

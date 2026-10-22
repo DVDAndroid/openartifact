@@ -59,11 +59,11 @@ func scanAndroidApp(row rowScanner) (*models.AndroidApp, error) {
 	return a, nil
 }
 
-// UpsertAndroidApp returns the live app of the repository, creating it first.
+// UpsertAndroidApp returns the app of the repository, creating it first.
 func (p *PostgresDB) UpsertAndroidApp(ctx context.Context, repoID, packageName string) (*models.AndroidApp, error) {
 	a, err := scanAndroidApp(p.pool.QueryRow(ctx, `
 		INSERT INTO android_apps AS a (repository_id, package_name) VALUES ($1, $2)
-		ON CONFLICT (repository_id, package_name) WHERE deleted_at IS NULL DO UPDATE SET updated_at = now()
+		ON CONFLICT (repository_id, package_name) DO UPDATE SET updated_at = now()
 		RETURNING `+androidAppCols, repoID, packageName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to upsert android app: %w", err)
@@ -75,7 +75,7 @@ func (p *PostgresDB) UpsertAndroidApp(ctx context.Context, repoID, packageName s
 // GetAndroidApp returns the app with the package name, or nil, nil.
 func (p *PostgresDB) GetAndroidApp(ctx context.Context, repoID, packageName string) (*models.AndroidApp, error) {
 	a, err := scanAndroidApp(p.pool.QueryRow(ctx,
-		`SELECT `+androidAppCols+` FROM android_apps a WHERE a.repository_id = $1 AND a.package_name = $2 AND a.deleted_at IS NULL`,
+		`SELECT `+androidAppCols+` FROM android_apps a WHERE a.repository_id = $1 AND a.package_name = $2`,
 		repoID, packageName))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
@@ -95,7 +95,7 @@ func (p *PostgresDB) GetAndroidAppByID(ctx context.Context, repoID, id string) (
 	}
 
 	a, err := scanAndroidApp(p.pool.QueryRow(ctx,
-		`SELECT `+androidAppCols+` FROM android_apps a WHERE a.repository_id = $1 AND a.id = $2 AND a.deleted_at IS NULL`,
+		`SELECT `+androidAppCols+` FROM android_apps a WHERE a.repository_id = $1 AND a.id = $2`,
 		repoID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
@@ -125,7 +125,7 @@ var androidAppSort = map[string]struct { //nolint:gochecknoglobals // read-only 
 func (p *PostgresDB) ListAndroidApps(ctx context.Context, repoID string, f models.AndroidAppFilter) ([]models.AndroidAppSummary, int, error) {
 	var a sqlArgs
 
-	where := []string{"a.repository_id = " + a.add(repoID), "a.deleted_at IS NULL"}
+	where := []string{"a.repository_id = " + a.add(repoID)}
 
 	if f.Query != "" {
 		q := a.add(likePattern(f.Query))
@@ -169,12 +169,12 @@ func (p *PostgresDB) ListAndroidApps(ctx context.Context, repoID string, f model
 		FROM android_apps a
 		LEFT JOIN LATERAL (
 			SELECT v.id, v.label, v.version_name, v.version_code, v.signer_sha256, v.origin, v.created_at
-			FROM android_versions v WHERE v.app_id = a.id AND v.deleted_at IS NULL
+			FROM android_versions v WHERE v.app_id = a.id
 			ORDER BY v.version_code DESC, v.created_at DESC LIMIT 1) lv ON true
 		LEFT JOIN LATERAL (
 			SELECT count(*)::int AS cnt, array_agg(DISTINCT v.origin) AS origins,
 				array_agg(DISTINCT v.signer_sha256) AS signers, sum(v.size_bytes)::bigint AS total
-			FROM android_versions v WHERE v.app_id = a.id AND v.deleted_at IS NULL) agg ON true
+			FROM android_versions v WHERE v.app_id = a.id) agg ON true
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY ` + order.expr + ` ` + dir + `, a.package_name
 		LIMIT ` + a.add(limit) + ` OFFSET ` + a.add(max(f.Offset, 0))
@@ -251,7 +251,7 @@ func (p *PostgresDB) UpdateAndroidAppMeta(ctx context.Context, repoID, id string
 	}
 
 	query := `UPDATE android_apps a SET ` + strings.Join(sets, ", ") +
-		` WHERE a.repository_id = ` + a.add(repoID) + ` AND a.id = ` + a.add(id) + ` AND a.deleted_at IS NULL RETURNING ` + androidAppCols
+		` WHERE a.repository_id = ` + a.add(repoID) + ` AND a.id = ` + a.add(id) + ` RETURNING ` + androidAppCols
 
 	app, err := scanAndroidApp(p.pool.QueryRow(ctx, query, a.args...))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -370,7 +370,7 @@ func (p *PostgresDB) GetAndroidVersion(ctx context.Context, repoID, id string, d
 	}
 
 	v, err := scanAndroidVersion(p.pool.QueryRow(ctx,
-		`SELECT `+cols+` FROM android_versions v WHERE v.repository_id = $1 AND v.id = $2 AND v.deleted_at IS NULL`,
+		`SELECT `+cols+` FROM android_versions v WHERE v.repository_id = $1 AND v.id = $2`,
 		repoID, id), detail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
@@ -383,12 +383,12 @@ func (p *PostgresDB) GetAndroidVersion(ctx context.Context, repoID, id string, d
 	return v, nil
 }
 
-// GetAndroidVersionBySHA256 returns the newest live version of the repository
+// GetAndroidVersionBySHA256 returns the newest version of the repository
 // whose file has the sha256, or nil, nil.
 func (p *PostgresDB) GetAndroidVersionBySHA256(ctx context.Context, repoID, sha string) (*models.AndroidVersion, error) {
 	v, err := scanAndroidVersion(p.pool.QueryRow(ctx,
 		`SELECT `+androidVersionCols+` FROM android_versions v
-		 WHERE v.repository_id = $1 AND v.sha256 = $2 AND v.deleted_at IS NULL ORDER BY v.created_at DESC LIMIT 1`,
+		 WHERE v.repository_id = $1 AND v.sha256 = $2 ORDER BY v.created_at DESC LIMIT 1`,
 		repoID, sha), false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
@@ -408,7 +408,7 @@ func (p *PostgresDB) GetAndroidVersionBySHA256(ctx context.Context, repoID, sha 
 func (p *PostgresDB) GetAndroidDownload(ctx context.Context, repoID, packageName string, versionCode int64, filename string) (*models.AndroidVersion, error) {
 	v, err := scanAndroidVersion(p.pool.QueryRow(ctx,
 		`SELECT `+androidVersionCols+` FROM android_versions v
-		 WHERE v.repository_id = $1 AND v.package_name = $2 AND v.version_code = $3 AND v.deleted_at IS NULL
+		 WHERE v.repository_id = $1 AND v.package_name = $2 AND v.version_code = $3
 		 ORDER BY (v.filename = $4) DESC, v.created_at DESC LIMIT 1`,
 		repoID, packageName, versionCode, filename), false)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -426,7 +426,7 @@ func (p *PostgresDB) GetAndroidDownload(ctx context.Context, repoID, packageName
 func (p *PostgresDB) FindAndroidOriginal(ctx context.Context, repoID, packageName string, versionCode int64) (*models.AndroidVersion, error) {
 	v, err := scanAndroidVersion(p.pool.QueryRow(ctx,
 		`SELECT `+androidVersionCols+` FROM android_versions v
-		 WHERE v.repository_id = $1 AND v.package_name = $2 AND v.version_code = $3 AND v.origin = 'original' AND v.deleted_at IS NULL
+		 WHERE v.repository_id = $1 AND v.package_name = $2 AND v.version_code = $3 AND v.origin = 'original'
 		 ORDER BY v.created_at DESC LIMIT 1`,
 		repoID, packageName, versionCode), false)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -444,7 +444,7 @@ func (p *PostgresDB) FindAndroidOriginal(ctx context.Context, repoID, packageNam
 func (p *PostgresDB) ListAndroidVersions(ctx context.Context, repoID string, f models.AndroidVersionFilter) ([]models.AndroidVersion, int, error) {
 	var a sqlArgs
 
-	where := []string{"v.repository_id = " + a.add(repoID), "v.deleted_at IS NULL"}
+	where := []string{"v.repository_id = " + a.add(repoID)}
 
 	if f.AppID != "" {
 		where = append(where, "v.app_id = "+a.add(f.AppID))
@@ -523,7 +523,7 @@ type AndroidLatestFilter struct {
 func (p *PostgresDB) LatestAndroidVersion(ctx context.Context, repoID, packageName string, f AndroidLatestFilter) (*models.AndroidVersion, error) {
 	var a sqlArgs
 
-	where := []string{"v.repository_id = " + a.add(repoID), "v.package_name = " + a.add(packageName), "v.deleted_at IS NULL"}
+	where := []string{"v.repository_id = " + a.add(repoID), "v.package_name = " + a.add(packageName)}
 
 	if f.SDK > 0 {
 		where = append(where, "v.min_sdk <= "+a.add(f.SDK))
@@ -600,9 +600,9 @@ func (p *PostgresDB) UpdateAndroidVersionMeta(ctx context.Context, repoID, id st
 		if *m.ParentID == "" {
 			sets = append(sets, "parent_id = NULL")
 		} else {
-			// Only a live version of the same repository can be a parent.
+			// Only a version of the same repository can be a parent.
 			sets = append(sets, "parent_id = (SELECT p.id FROM android_versions p WHERE p.id = "+a.add(*m.ParentID)+
-				"::uuid AND p.repository_id = v.repository_id AND p.deleted_at IS NULL)")
+				"::uuid AND p.repository_id = v.repository_id)")
 		}
 	}
 
@@ -619,7 +619,7 @@ func (p *PostgresDB) UpdateAndroidVersionMeta(ctx context.Context, repoID, id st
 	}
 
 	query := `UPDATE android_versions v SET ` + strings.Join(sets, ", ") +
-		` WHERE v.repository_id = ` + a.add(repoID) + ` AND v.id = ` + a.add(id) + ` AND v.deleted_at IS NULL RETURNING ` + androidVersionCols
+		` WHERE v.repository_id = ` + a.add(repoID) + ` AND v.id = ` + a.add(id) + ` RETURNING ` + androidVersionCols
 
 	v, err := scanAndroidVersion(p.pool.QueryRow(ctx, query, a.args...), false)
 	if errors.Is(err, pgx.ErrNoRows) {

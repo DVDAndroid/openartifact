@@ -12,6 +12,9 @@
 --
 -- Blobs are referenced by blobs.id with ON DELETE RESTRICT: the blob
 -- collector cannot remove a file an Android row still points to.
+--
+-- Rows are deleted for good (no deleted_at): every table with that column must
+-- be listed in trashSpecs, and trash support for android is a later change.
 
 SET LOCAL lock_timeout = '10s';
 
@@ -35,8 +38,6 @@ CREATE TABLE android_apps (
     upstream_latest text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    deleted_at timestamp with time zone,
-    deleted_by text,
     CONSTRAINT android_apps_pkey PRIMARY KEY (id),
     CONSTRAINT android_apps_repo_fkey FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
     CONSTRAINT android_apps_icon_blob_fkey FOREIGN KEY (icon_override_blob_id) REFERENCES blobs(id) ON DELETE RESTRICT,
@@ -44,7 +45,7 @@ CREATE TABLE android_apps (
     CONSTRAINT chk_android_apps_notes CHECK (length(notes) <= 65536)
 );
 
-CREATE UNIQUE INDEX android_apps_live_key ON android_apps (repository_id, package_name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX android_apps_key ON android_apps (repository_id, package_name);
 CREATE INDEX idx_android_apps_tags ON android_apps USING gin (tags);
 
 COMMENT ON TABLE android_apps IS 'Android apps (one per package name) of an android repository; notes and tags are hand-written.';
@@ -115,8 +116,6 @@ CREATE TABLE android_versions (
     created_by text DEFAULT '' NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    deleted_at timestamp with time zone,
-    deleted_by text,
     CONSTRAINT android_versions_pkey PRIMARY KEY (id),
     CONSTRAINT android_versions_repo_fkey FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
     CONSTRAINT android_versions_app_fkey FOREIGN KEY (app_id) REFERENCES android_apps(id) ON DELETE CASCADE,
@@ -127,8 +126,8 @@ CREATE TABLE android_versions (
     CONSTRAINT chk_android_versions_notes CHECK (length(notes) <= 65536 AND length(changelog) <= 65536)
 );
 
-CREATE UNIQUE INDEX android_versions_live_variant_key
-    ON android_versions (repository_id, package_name, version_code, variant_key) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX android_versions_variant_key
+    ON android_versions (repository_id, package_name, version_code, variant_key);
 CREATE INDEX idx_android_versions_app ON android_versions (app_id, version_code DESC, created_at DESC);
 CREATE INDEX idx_android_versions_repo_created ON android_versions (repository_id, created_at DESC, id);
 CREATE INDEX idx_android_versions_blob ON android_versions (blob_id);

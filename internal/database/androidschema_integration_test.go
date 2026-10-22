@@ -40,7 +40,7 @@ func TestAndroidSchema(t *testing.T) {
 		t.Fatalf("insert version: %v", err)
 	}
 
-	t.Run("variant key is unique among live rows", func(t *testing.T) {
+	t.Run("variant key is unique", func(t *testing.T) {
 		wantPgCode(t, insertVersion(1, "k1"), "23505", "duplicate variant")
 
 		if err := insertVersion(1, "k2"); err != nil {

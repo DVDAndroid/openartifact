@@ -35,7 +35,7 @@ func (p *PostgresDB) ListAndroidIcons(ctx context.Context, repoID, versionID str
 
 	rows, err := p.pool.Query(ctx, `SELECT `+androidIconCols+` FROM android_icons i
 		JOIN android_versions v ON v.id = i.version_id
-		WHERE v.repository_id = $1 AND v.id = $2 AND v.deleted_at IS NULL
+		WHERE v.repository_id = $1 AND v.id = $2
 		ORDER BY i.role, i.width DESC, i.density, i.source_path`, repoID, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list android icons: %w", err)
@@ -68,7 +68,7 @@ func (p *PostgresDB) GetAndroidIcon(ctx context.Context, repoID, versionID, icon
 
 	i, err := scanAndroidIcon(p.pool.QueryRow(ctx, `SELECT `+androidIconCols+` FROM android_icons i
 		JOIN android_versions v ON v.id = i.version_id
-		WHERE v.repository_id = $1 AND v.id = $2 AND i.id = $3 AND v.deleted_at IS NULL`, repoID, versionID, iconID))
+		WHERE v.repository_id = $1 AND v.id = $2 AND i.id = $3`, repoID, versionID, iconID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
 	}
@@ -99,7 +99,7 @@ func (p *PostgresDB) CreateAndroidFile(ctx context.Context, repoID string, f *mo
 	err := p.pool.QueryRow(ctx, `
 		INSERT INTO android_files (version_id, kind, name, blob_id, sha256, size_bytes)
 		SELECT v.id, $3, $4, $5, $6, $7 FROM android_versions v
-		WHERE v.id = $2 AND v.repository_id = $1 AND v.deleted_at IS NULL
+		WHERE v.id = $2 AND v.repository_id = $1
 		RETURNING id::text, created_at`,
 		repoID, f.VersionID, f.Kind, f.Name, f.BlobID, f.SHA256, f.SizeBytes).Scan(&f.ID, &f.CreatedAt)
 	if err != nil {
@@ -117,7 +117,7 @@ func (p *PostgresDB) ListAndroidFiles(ctx context.Context, repoID, versionID str
 
 	rows, err := p.pool.Query(ctx, `SELECT `+androidFileCols+` FROM android_files f
 		JOIN android_versions v ON v.id = f.version_id
-		WHERE v.repository_id = $1 AND v.id = $2 AND v.deleted_at IS NULL ORDER BY f.created_at, f.id`, repoID, versionID)
+		WHERE v.repository_id = $1 AND v.id = $2 ORDER BY f.created_at, f.id`, repoID, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list android files: %w", err)
 	}
@@ -149,7 +149,7 @@ func (p *PostgresDB) GetAndroidFile(ctx context.Context, repoID, versionID, file
 
 	f, err := scanAndroidFile(p.pool.QueryRow(ctx, `SELECT `+androidFileCols+` FROM android_files f
 		JOIN android_versions v ON v.id = f.version_id
-		WHERE v.repository_id = $1 AND v.id = $2 AND f.id = $3 AND v.deleted_at IS NULL`, repoID, versionID, fileID))
+		WHERE v.repository_id = $1 AND v.id = $2 AND f.id = $3`, repoID, versionID, fileID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
 	}
@@ -306,7 +306,7 @@ func (p *PostgresDB) ListAndroidAppSignerUse(ctx context.Context, repoID, appID 
 	rows, err := p.pool.Query(ctx, `
 		SELECT v.signer_sha256, count(*)::int, min(v.created_at), max(v.created_at), array_agg(DISTINCT v.origin)
 		FROM android_versions v
-		WHERE v.repository_id = $1 AND v.app_id = $2 AND v.deleted_at IS NULL
+		WHERE v.repository_id = $1 AND v.app_id = $2
 		GROUP BY v.signer_sha256 ORDER BY max(v.created_at) DESC`, repoID, appID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list android signer use: %w", err)
@@ -336,9 +336,9 @@ func (p *PostgresDB) ListAndroidAppSignerUse(ctx context.Context, repoID, appID 
 func (p *PostgresDB) ListAndroidTags(ctx context.Context, repoID string) ([]models.AndroidTagCount, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT tag, sum(apps)::int, sum(versions)::int FROM (
-			SELECT unnest(tags) AS tag, 1 AS apps, 0 AS versions FROM android_apps WHERE repository_id = $1 AND deleted_at IS NULL
+			SELECT unnest(tags) AS tag, 1 AS apps, 0 AS versions FROM android_apps WHERE repository_id = $1
 			UNION ALL
-			SELECT unnest(tags), 0, 1 FROM android_versions WHERE repository_id = $1 AND deleted_at IS NULL
+			SELECT unnest(tags), 0, 1 FROM android_versions WHERE repository_id = $1
 		) t GROUP BY tag ORDER BY sum(apps) + sum(versions) DESC, tag`, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list android tags: %w", err)

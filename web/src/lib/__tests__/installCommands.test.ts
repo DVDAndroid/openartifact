@@ -64,3 +64,14 @@ describe('clientSetup', () => {
     }
   })
 })
+
+describe('android snippets', () => {
+  it('installs from latest.apk and publishes through the management API', () => {
+    const [adb, obtainium] = clientSetup('android', 'https://oa.example', 'phone')
+    expect(adb!.configure).toContain('https://oa.example/repos/phone/apps/com.example.app/latest.apk')
+    expect(adb!.configure).toContain('adb install -r')
+    expect(adb!.publish).toContain('-F file=@app-release.apk')
+    expect(adb!.publish).toContain('https://oa.example/api/v1/repositories/phone/apks')
+    expect(obtainium!.configure).toBe('https://oa.example/repos/phone/apps/com.example.app/latest.json')
+  })
+})

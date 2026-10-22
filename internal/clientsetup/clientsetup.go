@@ -120,6 +120,8 @@ func builderFor(format string) func(target) []Snippet {
 		return sbtSnippets
 	case "ivy":
 		return ivySnippets
+	case "android":
+		return androidSnippets
 	default:
 		return nil
 	}
@@ -239,6 +241,20 @@ func rubygemsSnippets(c target) []Snippet {
 		Configure: fmt.Sprintf("gem sources --add %s/", c.base),
 		Publish:   "GEM_HOST_API_KEY=<TOKEN> gem push my-gem-1.0.0.gem --host " + c.base,
 	}}
+}
+
+func androidSnippets(c target) []Snippet {
+	return []Snippet{
+		{
+			Client:    "adb",
+			Configure: fmt.Sprintf("curl -fL -H \"Authorization: Bearer <TOKEN>\" -o app.apk %s/apps/com.example.app/latest.apk\nadb install -r app.apk", c.base),
+			Publish:   fmt.Sprintf("curl -X POST -H \"Authorization: Bearer <TOKEN>\" -F file=@app-release.apk -F origin=built %s/api/v1/repositories/%s/apks", c.origin, c.esc),
+		},
+		{
+			Client:    "Obtainium",
+			Configure: fmt.Sprintf("%s/apps/com.example.app/latest.json", c.base),
+		},
+	}
 }
 
 func rawSnippets(c target) []Snippet {

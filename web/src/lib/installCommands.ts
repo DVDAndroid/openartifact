@@ -68,6 +68,8 @@ export function pullCommand(
       return `resolvers += "${repo}" at "${base}"`
     case 'ivy':
       return `<ibiblio name="${repo}" m2compatible="true" root="${base}"/>`
+    case 'android':
+      return `curl -fL -H "Authorization: Bearer <TOKEN>" -o app.apk ${base}/apps/${pkg}/latest.apk`
     default:
       return `${base}/`
   }
@@ -218,6 +220,18 @@ export function clientSetup(format: string, origin: string, repo: string): Clien
           client: 'sbt',
           configure: `// build.sbt\nresolvers += "${repo}" at "${base}"\ncredentials += Credentials("OpenArtifact", "${host}", "<USERNAME>", "<TOKEN>")`,
           publish: `ThisBuild / publishTo := Some("${repo}" at "${base}")\n// then: sbt publish`,
+        },
+      ]
+    case 'android':
+      return [
+        {
+          client: 'adb',
+          configure: `curl -fL -H "Authorization: Bearer <TOKEN>" -o app.apk ${base}/apps/com.example.app/latest.apk\nadb install -r app.apk`,
+          publish: `curl -X POST -H "Authorization: Bearer <TOKEN>" -F file=@app-release.apk -F origin=built ${origin}/api/v1/repositories/${encodeURIComponent(repo)}/apks`,
+        },
+        {
+          client: 'Obtainium',
+          configure: `${base}/apps/com.example.app/latest.json`,
         },
       ]
     case 'ivy':

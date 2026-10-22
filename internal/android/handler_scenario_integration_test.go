@@ -87,6 +87,11 @@ func (s *scenario) uploadOriginal() {
 		s.t.Fatalf("upload = %v", d)
 	}
 
+	// The publisher's key on the app's first original is expected, not news.
+	if w, _ := d["warnings"].([]any); len(w) != 0 {
+		s.t.Fatalf("warnings = %v, want none", w)
+	}
+
 	signers := s.e.getJSON(apiBase + "/signers").Body.String()
 	if !strings.Contains(signers, s.publisher.SHA256()) || !strings.Contains(signers, `"original"`) {
 		s.t.Fatalf("publisher key not registered as original: %s", signers)
@@ -127,6 +132,15 @@ func (s *scenario) detail() {
 	v := d["version"].(map[string]any)
 	if v["origin"] != "patched" || v["label"] != "Demo" || v["download_url"] == "" {
 		s.t.Fatalf("version = %v", v)
+	}
+
+	// The key is not registered yet; the answer says so without usage fields.
+	if signer, _ := d["signer"].(map[string]any); signer["sha256"] != s.mine.SHA256() || signer["known"] != false || len(signer) != 2 {
+		s.t.Fatalf("signer = %v", d["signer"])
+	}
+
+	if files, ok := d["files"].([]any); !ok || len(files) != 0 {
+		s.t.Fatalf("files = %#v, want an empty list", d["files"])
 	}
 
 	tags, _ := v["tags"].([]any)

@@ -10,27 +10,28 @@ func TestCheckSigner(t *testing.T) {
 	const key = "aa"
 
 	tests := []struct {
-		name, policy, origin, trust string
-		known                       bool
-		signer                      string
-		wantReject, wantWarn        bool
+		name                 string
+		facts                signerFacts
+		wantReject, wantWarn bool
 	}{
-		{"own build, own key", "warn", "built", "mine", true, key, false, false},
-		{"patched with an unknown key warns", "warn", "patched", "", false, key, false, true},
-		{"patched with the publisher's key warns", "warn", "patched", "original", true, key, false, true},
-		{"patched with an unknown key under reject", "reject", "patched", "", false, key, true, true},
-		{"patched with an unknown key under allow", "allow", "patched", "", false, key, false, false},
-		{"original with a new key is fine under warn", "warn", "original", "", false, key, false, true},
-		{"original with a known key is fine", "warn", "original", "original", true, key, false, false},
-		{"original with a new key under reject", "reject", "original", "", false, key, true, true},
-		{"untrusted key warns even for originals", "warn", "original", "untrusted", true, key, false, true},
-		{"untrusted key under allow is accepted", "allow", "built", "untrusted", true, key, false, false},
-		{"unsigned files always warn", "allow", "built", "", false, "", false, true},
+		{"own build, own key", signerFacts{Policy: "warn", Origin: "built", Signer: key, Known: true, Trust: "mine"}, false, false},
+		{"patched with an unknown key warns", signerFacts{Policy: "warn", Origin: "patched", Signer: key}, false, true},
+		{"patched with the publisher's key warns", signerFacts{Policy: "warn", Origin: "patched", Signer: key, Known: true, Trust: "original"}, false, true},
+		{"patched with an unknown key under reject", signerFacts{Policy: "reject", Origin: "patched", Signer: key}, true, true},
+		{"patched with an unknown key under allow", signerFacts{Policy: "allow", Origin: "patched", Signer: key}, false, false},
+		{"first original of an app is silent", signerFacts{Policy: "warn", Origin: "original", Signer: key}, false, false},
+		{"first original under reject is accepted", signerFacts{Policy: "reject", Origin: "original", Signer: key}, false, false},
+		{"original with a known key is fine", signerFacts{Policy: "warn", Origin: "original", Signer: key, Known: true, Trust: "original"}, false, false},
+		{"original with a new key for a signed app warns", signerFacts{Policy: "warn", Origin: "original", Signer: key, AppHasOtherKey: true}, false, true},
+		{"original with a new key under reject", signerFacts{Policy: "reject", Origin: "original", Signer: key, AppHasOtherKey: true}, true, true},
+		{"untrusted key warns even for originals", signerFacts{Policy: "warn", Origin: "original", Signer: key, Known: true, Trust: "untrusted"}, false, true},
+		{"untrusted key under allow is accepted", signerFacts{Policy: "allow", Origin: "built", Signer: key, Known: true, Trust: "untrusted"}, false, false},
+		{"unsigned files always warn", signerFacts{Policy: "allow", Origin: "built"}, false, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checkSigner(tt.policy, tt.origin, tt.trust, tt.known, tt.signer)
+			got := checkSigner(tt.facts)
 			if got.Reject != tt.wantReject || (got.Warning != "") != tt.wantWarn {
 				t.Errorf("checkSigner = %+v, want reject=%v warning=%v", got, tt.wantReject, tt.wantWarn)
 			}

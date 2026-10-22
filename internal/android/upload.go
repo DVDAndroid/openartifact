@@ -283,9 +283,19 @@ func (h *Handler) plan(ctx context.Context, repo *models.Repository, up *upload)
 // checkUploadSigner applies the app's signer policy to a candidate.
 func (h *Handler) checkUploadSigner(ctx context.Context, repoID string, pl *uploadPlan, c *candidate, origin string, accept bool) error {
 	appID, policy := "", models.AndroidPolicyWarn
+	otherKey := false
 
 	if pl.app != nil {
 		appID, policy = pl.app.ID, pl.app.SignerPolicy
+
+		use, err := h.store.ListAndroidAppSignerUse(ctx, repoID, appID)
+		if err != nil {
+			return fmt.Errorf("failed to look up the app's signers: %w", err)
+		}
+
+		for _, u := range use {
+			otherKey = otherKey || u.SHA256 != c.signer()
+		}
 	}
 
 	trust, known, err := h.store.AndroidSignerTrust(ctx, repoID, appID, c.signer())
@@ -293,7 +303,7 @@ func (h *Handler) checkUploadSigner(ctx context.Context, repoID string, pl *uplo
 		return fmt.Errorf("failed to look up signer: %w", err)
 	}
 
-	chk := checkSigner(policy, origin, trust, known, c.signer())
+	chk := checkSigner(signerFacts{Policy: policy, Origin: origin, Signer: c.signer(), Known: known, Trust: trust, AppHasOtherKey: otherKey})
 	if chk.Reject && !accept {
 		return conflict("signer rejected by the app's policy: "+chk.Warning, map[string]any{
 			"signer_sha256": c.signer(), "policy": policy, "origin": origin,

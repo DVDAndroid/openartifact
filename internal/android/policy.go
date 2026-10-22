@@ -13,35 +13,48 @@ type signerCheck struct {
 	Warning string
 }
 
+// signerFacts is what the repository knows about an upload's signing key.
+type signerFacts struct {
+	Policy string
+	Origin string
+	Signer string
+	// Known is true for a key registered in the repository (globally or for the app); Trust is its level.
+	Known bool
+	Trust string
+	// AppHasOtherKey is true when the app already has versions signed with a different key.
+	AppHasOtherKey bool
+}
+
 // checkSigner applies the signer policy of an app to an upload.
 //
 // Builds the owner makes (built, patched) are expected to carry a key marked as
-// theirs; originals keep the publisher's key, so any key is fine for them
-// unless the app rejects unknown signers. A key marked untrusted is always
-// reported. known is false for a key the repository has never seen.
-func checkSigner(policy, origin, trust string, known bool, signer string) signerCheck {
-	if signer == "" {
+// theirs. Anything else (originals, unknown provenance) comes with the
+// publisher's key, so a key never seen before is only worth a word when the
+// app was signed with a different one until now. A key marked untrusted is
+// always reported.
+func checkSigner(f signerFacts) signerCheck {
+	if f.Signer == "" {
 		return signerCheck{Warning: "the file is not signed"}
 	}
 
 	var problem string
 
 	switch {
-	case known && trust == models.AndroidTrustUntrusted:
+	case f.Known && f.Trust == models.AndroidTrustUntrusted:
 		problem = "signed with a key marked untrusted"
-	case origin == models.AndroidOriginBuilt || origin == models.AndroidOriginPatched:
-		if !known || trust != models.AndroidTrustMine {
-			problem = "a " + origin + " file is not signed with a key marked as yours"
+	case f.Origin == models.AndroidOriginBuilt || f.Origin == models.AndroidOriginPatched:
+		if !f.Known || f.Trust != models.AndroidTrustMine {
+			problem = "a " + f.Origin + " file is not signed with a key marked as yours"
 		}
-	case !known:
-		problem = "signed with a key this repository has not seen"
+	case !f.Known && f.AppHasOtherKey:
+		problem = "signed with a key this app has not been signed with before"
 	}
 
 	if problem == "" {
 		return signerCheck{}
 	}
 
-	switch policy {
+	switch f.Policy {
 	case models.AndroidPolicyAllow:
 		return signerCheck{}
 	case models.AndroidPolicyReject:

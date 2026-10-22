@@ -123,6 +123,28 @@ func (h *Handler) handleListApps(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, http.StatusOK, pageOf{Items: items, Total: total, Page: page, Limit: limit})
 }
 
+// keyView is how the repository knows a signing key.
+type keyView struct {
+	SHA256 string `json:"sha256"`
+	Known  bool   `json:"known"`
+	Trust  string `json:"trust,omitempty"`
+	Label  string `json:"label,omitempty"`
+}
+
+// lookupKey finds sha among the known keys; a registration scoped to an app
+// wins over a repository-wide one.
+func lookupKey(known []models.AndroidSigner, sha string) keyView {
+	kv := keyView{SHA256: sha}
+
+	for _, k := range known {
+		if k.SHA256 == sha && (!kv.Known || k.AppID != "") {
+			kv.Known, kv.Trust, kv.Label = true, k.Trust, k.Label
+		}
+	}
+
+	return kv
+}
+
 // signerView is a key used by an app together with how the repository knows it.
 type signerView struct {
 	models.AndroidSignerUse
@@ -175,14 +197,8 @@ func (h *Handler) handleGetApp(w http.ResponseWriter, r *http.Request) {
 	signers := make([]signerView, len(use))
 
 	for i, u := range use {
-		signers[i] = signerView{AndroidSignerUse: u}
-
-		// An app-scoped registration wins over a repository-wide one.
-		for _, k := range known {
-			if k.SHA256 == u.SHA256 && (!signers[i].Known || k.AppID != "") {
-				signers[i].Known, signers[i].Trust, signers[i].Label = true, k.Trust, k.Label
-			}
-		}
+		kv := lookupKey(known, u.SHA256)
+		signers[i] = signerView{AndroidSignerUse: u, Known: kv.Known, Trust: kv.Trust, Label: kv.Label}
 	}
 
 	writeOK(w, http.StatusOK, map[string]any{"app": app, "signers": signers})
@@ -386,14 +402,14 @@ func (h *Handler) handleGetVersion(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"version": h.view(repo.Name, v), "signer": nil, "parent": nil}
 
 	if v.SignerSHA256 != "" {
-		sv, err := h.signerOf(ctx, repo.ID, v)
+		known, err := h.store.ListAndroidSigners(ctx, repo.ID, v.AppID)
 		if err != nil {
 			h.fail(w, "failed to look up the signer", err)
 
 			return
 		}
 
-		out["signer"] = sv
+		out["signer"] = lookupKey(known, v.SignerSHA256)
 	}
 
 	if v.ParentID != "" {
@@ -426,27 +442,13 @@ func (h *Handler) handleGetVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if files == nil {
+		files = []models.AndroidFile{}
+	}
+
 	out["icons"], out["files"] = h.iconViews(repo.Name, v.ID, icons), files
 
 	writeOK(w, http.StatusOK, out)
-}
-
-// signerOf describes how the repository knows the signer of v.
-func (h *Handler) signerOf(ctx context.Context, repoID string, v *models.AndroidVersion) (signerView, error) {
-	sv := signerView{SHA256: v.SignerSHA256}
-
-	known, err := h.store.ListAndroidSigners(ctx, repoID, v.AppID)
-	if err != nil {
-		return sv, err //nolint:wrapcheck // wrapped by the caller's message
-	}
-
-	for _, k := range known {
-		if k.SHA256 == v.SignerSHA256 && (!sv.Known || k.AppID != "") {
-			sv.Known, sv.Trust, sv.Label = true, k.Trust, k.Label
-		}
-	}
-
-	return sv, nil
 }
 
 // versionMetaBody is the body of PUT versions/{id}/meta; absent fields stay unchanged.

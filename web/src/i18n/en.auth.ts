@@ -35,7 +35,7 @@ export const enAuth = {
   'shell.notFoundTitle': 'Page not found',
   'shell.notFoundBody': 'The page you are looking for does not exist or has moved.',
   'shell.backToDashboard': 'Back to dashboard',
-  'shell.organizations': 'Organizations',
+  'shell.projects': 'Projects',
   'shell.aiSettings': 'AI Settings',
   'shell.aiAnalysis': 'AI Analysis',
 

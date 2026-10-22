@@ -55,7 +55,7 @@ func TestReplaceGroupMembersRenumbersKeptMembers(t *testing.T) {
 	org := systemOrgID
 
 	mk := func(name, repoType string) string {
-		r := &models.Repository{Name: name, Format: "raw", RepoType: repoType, OrgID: &org}
+		r := &models.Repository{Name: name, Format: "raw", RepoType: repoType, ProjectID: &org}
 		if err := pg.CreateRepository(ctx, r); err != nil {
 			t.Fatalf("CreateRepository %s: %v", name, err)
 		}

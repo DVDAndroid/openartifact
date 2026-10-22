@@ -250,12 +250,12 @@ func TestIsArtifactQuarantined(t *testing.T) {
 
 	systemOrg := "00000000-0000-0000-0000-000000000001"
 
-	repo := &models.Repository{Name: "q-repo", Format: "raw", RepoType: "hosted", OrgID: &systemOrg}
+	repo := &models.Repository{Name: "q-repo", Format: "raw", RepoType: "hosted", ProjectID: &systemOrg}
 	if err := pg.CreateRepository(ctx, repo); err != nil {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	other := &models.Repository{Name: "q-other", Format: "raw", RepoType: "hosted", OrgID: &systemOrg}
+	other := &models.Repository{Name: "q-other", Format: "raw", RepoType: "hosted", ProjectID: &systemOrg}
 	if err := pg.CreateRepository(ctx, other); err != nil {
 		t.Fatalf("CreateRepository(other): %v", err)
 	}
@@ -374,7 +374,7 @@ func TestNullableTimestampsCleanupPolicy(t *testing.T) {
 	ctx := context.Background()
 	systemOrg := "00000000-0000-0000-0000-000000000001"
 
-	repo := &models.Repository{Name: "np-repo", Format: "raw", RepoType: "hosted", OrgID: &systemOrg}
+	repo := &models.Repository{Name: "np-repo", Format: "raw", RepoType: "hosted", ProjectID: &systemOrg}
 	if err := pg.CreateRepository(ctx, repo); err != nil {
 		t.Fatalf("CreateRepository: %v", err)
 	}

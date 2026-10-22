@@ -33,7 +33,7 @@ A trashed item is not copied or renamed: it is the same record with a `deleted_a
 
 ### Multiple replicas and the auth cache
 
-Repository, organization and membership lookups made while authorizing a request are cached in memory for `DB_AUTH_CACHE_TTL_MS` (default 2000 ms). Trashing or restoring a repository through a replica invalidates that replica's cache at once, but the other replicas keep their cached copy until the TTL expires. For up to that long, another replica can still serve a just-trashed repository (and keep refusing a just-restored one). The same applies to changes made directly in the database. Lower the TTL, or set it to `0`, if that window is not acceptable; see also [RBAC](../security/rbac.md).
+Repository, project and membership lookups made while authorizing a request are cached in memory for `DB_AUTH_CACHE_TTL_MS` (default 2000 ms). Trashing or restoring a repository through a replica invalidates that replica's cache at once, but the other replicas keep their cached copy until the TTL expires. For up to that long, another replica can still serve a just-trashed repository (and keep refusing a just-restored one). The same applies to changes made directly in the database. Lower the TTL, or set it to `0`, if that window is not acceptable; see also [RBAC](../security/rbac.md).
 
 ## Retention
 
@@ -179,7 +179,7 @@ What happens next:
 - Its **name stays reserved** while it is in the trash. Creating a repository with the same name is `409`, until the old one is purged or restored.
 - An admin can restore it from the trash (`kind` `repository`) within the retention period; everything comes back as it was, including its packages and settings. After the retention (or immediately when the repository's `trash_retention_days` is `0`) the purge removes the repository, its packages and its quota counters.
 - Items that were trashed individually before the repository keep the retention window they had left at that moment: a restore shifts their deletion time by the time the repository spent in the trash.
-- An organization cannot be deleted (`409`) while it owns repositories, repositories in the trash included; purge or restore them first.
+- A project cannot be deleted (`409`) while it owns repositories, repositories in the trash included; purge or restore them first.
 - The existing guard still applies: the delete is `409` while a release bundle or promotion references the repository.
 
 ## Restore

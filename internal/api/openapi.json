@@ -329,9 +329,9 @@
             "format": "date-time",
             "description": "Last update timestamp"
           },
-          "org": {
+          "project": {
             "type": "string",
-            "description": "Name of the organization that owns the repository (the built-in 'system' organization unless set at creation or moved). Members of any other organization get access to the repository according to their role; see docs/security/rbac.md."
+            "description": "Name of the project that owns the repository (the built-in 'system' project unless set at creation or moved). Members of any other project get access to the repository according to their role; see docs/security/rbac.md."
           },
           "permissions": {
             "type": "object",
@@ -957,74 +957,299 @@
           }
         }
       },
-      "Organization": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string"
-          },
-          "display_name": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "member_role": {
-            "type": "string",
-            "enum": [
-              "read",
-              "write",
-              "admin"
-            ],
-            "description": "Access level plain organization members get on every repository the organization owns: read, write (read+write) or admin (read+write+delete). Owners and admins of the organization always get admin. Never grants manage. Ignored for the built-in system organization. Default read."
-          },
-          "owner_id": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "slug": {
-            "type": "string",
-            "description": "URL-safe unique identifier derived from the name: lowercased, runs of characters outside a-z0-9 collapsed to '-', at most 64 characters. A name or slug collision on create returns 409."
+        "Project": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": {
+              "type": "string"
+            },
+            "display_name": {
+              "type": "string",
+              "nullable": true
+            },
+            "description": {
+              "type": "string",
+              "nullable": true
+            },
+            "owner_id": {
+              "type": "string",
+              "format": "uuid",
+              "nullable": true
+            },
+            "slug": {
+              "type": "string",
+              "description": "URL-safe unique identifier derived from the name: lowercased, runs of characters outside a-z0-9 collapsed to '-', at most 64 characters. A name or slug collision on create returns 409."
+            },
+            "allowed_formats": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "nullable": true,
+              "description": "Package formats repositories of this project may use. null allows every format."
+            },
+            "allowed_repo_types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hosted",
+                  "proxy",
+                  "group"
+                ]
+              },
+              "description": "Repository types allowed in this project."
+            },
+            "repo_name_prefix": {
+              "type": "string",
+              "description": "Prefix every repository name in this project must start with. Empty means no prefix is required."
+            },
+            "allow_public_repos": {
+              "type": "boolean",
+              "description": "Whether repositories of this project may be public."
+            },
+            "max_repositories": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of repositories the project may own. 0 means unlimited."
+            },
+            "token_max_ttl_days": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum lifetime in days of tokens scoped to this project. 0 means no cap."
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
           }
-        }
-      },
-      "OrgMember": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "org_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "user_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "role": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
+        },
+        "ProjectMember": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "project_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "user_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "maintainer",
+                "developer",
+                "viewer"
+              ]
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
           }
-        }
-      },
+        },
+        "ProjectGroup": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "group_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "group_name": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "viewer",
+                "developer",
+                "maintainer"
+              ]
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "ProjectCreateRequest": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "display_name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "allowed_formats": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "nullable": true,
+              "description": "Package formats repositories of this project may use. null allows every format."
+            },
+            "allowed_repo_types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hosted",
+                  "proxy",
+                  "group"
+                ]
+              },
+              "description": "Repository types allowed in this project."
+            },
+            "repo_name_prefix": {
+              "type": "string",
+              "description": "Prefix every repository name in this project must start with. Empty means no prefix is required."
+            },
+            "allow_public_repos": {
+              "type": "boolean",
+              "description": "Whether repositories of this project may be public."
+            },
+            "max_repositories": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of repositories the project may own. 0 means unlimited."
+            },
+            "token_max_ttl_days": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum lifetime in days of tokens scoped to this project. 0 means no cap."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "ProjectUpdateRequest": {
+          "type": "object",
+          "description": "Partial update: omitted fields stay unchanged.",
+          "properties": {
+            "display_name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "allowed_formats": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "nullable": true,
+              "description": "Package formats repositories of this project may use. null allows every format."
+            },
+            "allowed_repo_types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hosted",
+                  "proxy",
+                  "group"
+                ]
+              },
+              "description": "Repository types allowed in this project."
+            },
+            "repo_name_prefix": {
+              "type": "string",
+              "description": "Prefix every repository name in this project must start with. Empty means no prefix is required."
+            },
+            "allow_public_repos": {
+              "type": "boolean",
+              "description": "Whether repositories of this project may be public."
+            },
+            "max_repositories": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of repositories the project may own. 0 means unlimited."
+            },
+            "token_max_ttl_days": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum lifetime in days of tokens scoped to this project. 0 means no cap."
+            }
+          }
+        },
+        "ProjectMemberCreateRequest": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "maintainer",
+                "developer",
+                "viewer"
+              ],
+              "default": "viewer"
+            }
+          },
+          "required": [
+            "user_id"
+          ]
+        },
+        "ProjectMemberUpdateRequest": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "maintainer",
+                "developer",
+                "viewer"
+              ]
+            }
+          },
+          "required": [
+            "role"
+          ]
+        },
+        "ProjectGroupUpdateRequest": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": [
+                "viewer",
+                "developer",
+                "maintainer"
+              ]
+            }
+          },
+          "required": [
+            "role"
+          ]
+        },
       "SBOMReport": {
         "type": "object",
         "properties": {
@@ -2563,9 +2788,9 @@
                     },
                     "description": "For group repos: ordered member repository names (first hit wins). Members must be hosted or proxy repositories of the group's format; groups cannot be nested."
                   },
-                  "org": {
+                  "project": {
                     "type": "string",
-                    "description": "Name of the owning organization. Defaults to the built-in system organization, whose membership grants nothing. Unknown organization: 404."
+                    "description": "Name of the owning project. Defaults to the built-in system project, whose membership grants nothing. Unknown project: 404."
                   },
                   "presign_downloads": {
                     "type": "boolean",
@@ -7055,25 +7280,38 @@
         }
       }
     },
-    "/api/v1/orgs": {
-      "get": {
-        "summary": "List organizations",
-        "description": "List all organizations Requires the global manage permission (administrators); organization roles do not open this API.",
-        "tags": [
-          "Organizations"
-        ],
-        "responses": {
-          "200": {
-            "description": "List of organizations",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "organizations": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/Organization"
+      "/api/v1/projects": {
+        "get": {
+          "summary": "List projects",
+          "description": "List the projects the caller belongs to; with all=true, every project (global administrators only, others get 403). Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "all",
+              "in": "query",
+              "required": false,
+              "description": "List every project instead of only the caller's own. Global administrators only.",
+              "schema": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "List of projects",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "projects": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/Project"
+                        }
                       }
                     }
                   }
@@ -7081,357 +7319,459 @@
               }
             }
           }
-        }
-      },
-      "post": {
-        "summary": "Create organization",
-        "description": "Create a new organization Requires the global manage permission (administrators); organization roles do not open this API.",
-        "tags": [
-          "Organizations"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "display_name": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "member_role": {
-                    "type": "string",
-                    "enum": [
-                      "read",
-                      "write",
-                      "admin"
-                    ],
-                    "description": "Access level plain organization members get on every repository the organization owns: read, write (read+write) or admin (read+write+delete). Owners and admins of the organization always get admin. Never grants manage. Ignored for the built-in system organization. Default read."
-                  }
-                },
-                "required": [
-                  "name"
-                ]
-              }
-            }
-          }
         },
-        "responses": {
-          "201": {
-            "description": "Organization created",
+        "post": {
+          "summary": "Create project",
+          "description": "Create a new project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "requestBody": {
+            "required": true,
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Organization"
+                  "$ref": "#/components/schemas/ProjectCreateRequest"
                 }
               }
             }
           },
-          "409": {
-            "description": "Organization name or slug already taken"
-          },
-          "400": {
-            "description": "Invalid name, slug or member_role"
-          }
-        }
-      }
-    },
-    "/api/v1/orgs/{org}": {
-      "get": {
-        "summary": "Get organization",
-        "description": "Get details of a specific organization Requires the global manage permission (administrators); organization roles do not open this API.",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Organization details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Organization"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Organization not found"
-          }
-        }
-      },
-      "put": {
-        "summary": "Update organization",
-        "description": "Update an organization Requires the global manage permission (administrators); organization roles do not open this API.",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "display_name": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "member_role": {
-                    "type": "string",
-                    "enum": [
-                      "read",
-                      "write",
-                      "admin"
-                    ],
-                    "description": "Access level plain organization members get on every repository the organization owns: read, write (read+write) or admin (read+write+delete). Owners and admins of the organization always get admin. Never grants manage. Ignored for the built-in system organization. Default read."
+          "responses": {
+            "201": {
+              "description": "Project created",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Project"
                   }
                 }
               }
+            },
+            "400": {
+              "description": "Invalid name, slug or policy field"
+            },
+            "409": {
+              "description": "Project name or slug already taken"
+            }
+          }
+        }
+      },
+      "/api/v1/projects/{project}": {
+        "get": {
+          "summary": "Get project",
+          "description": "Get details of a specific project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Project details",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Project not found"
             }
           }
         },
-        "responses": {
-          "200": {
-            "description": "Organization updated",
+        "put": {
+          "summary": "Update project",
+          "description": "Partially update a project: only the fields present in the body change. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Organization"
+                  "$ref": "#/components/schemas/ProjectUpdateRequest"
                 }
               }
             }
           },
-          "404": {
-            "description": "Organization not found"
+          "responses": {
+            "200": {
+              "description": "Project updated",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid policy field"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete project",
+          "description": "Delete a project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Project deleted"
+            },
+            "404": {
+              "description": "Project not found"
+            },
+            "409": {
+              "description": "Project still owns repositories"
+            }
           }
         }
       },
-      "delete": {
-        "summary": "Delete organization",
-        "description": "Delete an organization Requires the global manage permission (administrators); organization roles do not open this API.",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
+      "/api/v1/projects/{project}/members": {
+        "get": {
+          "summary": "List project members",
+          "description": "List members of a project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "List of project members",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "members": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/ProjectMember"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Project not found"
             }
           }
-        ],
-        "responses": {
-          "204": {
-            "description": "Organization deleted"
-          },
-          "404": {
-            "description": "Organization not found"
-          }
-        }
-      }
-    },
-    "/api/v1/orgs/{org}/members": {
-      "get": {
-        "summary": "List org members",
-        "description": "List members of an organization",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
+        },
+        "post": {
+          "summary": "Add project member",
+          "description": "Add a user to a project. The role defaults to viewer. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
             }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of org members",
+          ],
+          "requestBody": {
+            "required": true,
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/OrgMember"
-                  }
+                  "$ref": "#/components/schemas/ProjectMemberCreateRequest"
                 }
               }
             }
           },
-          "404": {
-            "description": "Organization not found"
+          "responses": {
+            "201": {
+              "description": "Member added",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ProjectMember"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid role"
+            },
+            "404": {
+              "description": "Project or user not found"
+            }
           }
         }
       },
-      "post": {
-        "summary": "Add org member",
-        "description": "Add a member to an organization",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
+      "/api/v1/projects/{project}/members/{user_id}": {
+        "put": {
+          "summary": "Update project member",
+          "description": "Change a member's role in a project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
               "schema": {
-                "type": "object",
-                "properties": {
-                  "user_id": {
-                    "type": "string",
-                    "format": "uuid"
-                  },
-                  "role": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "user_id"
-                ]
+                "type": "string"
               }
+            },
+            {
+              "name": "user_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMemberUpdateRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Member updated",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ProjectMember"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid role"
+            },
+            "404": {
+              "description": "Member not found"
             }
           }
         },
-        "responses": {
-          "201": {
-            "description": "Member added"
-          },
-          "404": {
-            "description": "Organization or user not found"
-          }
-        }
-      }
-    },
-    "/api/v1/orgs/{org}/members/{user_id}": {
-      "put": {
-        "summary": "Update org member",
-        "description": "Update a member's role in an organization",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
+        "delete": {
+          "summary": "Remove project member",
+          "description": "Remove a member from a project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
               "schema": {
-                "type": "object",
-                "properties": {
-                  "role": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "role"
-                ]
+                "type": "string"
+              }
+            },
+            {
+              "name": "user_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "format": "uuid"
               }
             }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Member updated"
-          },
-          "404": {
-            "description": "Member not found"
+          ],
+          "responses": {
+            "204": {
+              "description": "Member removed"
+            },
+            "404": {
+              "description": "Member not found"
+            }
           }
         }
       },
-      "delete": {
-        "summary": "Remove org member",
-        "description": "Remove a member from an organization",
-        "tags": [
-          "Organizations"
-        ],
-        "parameters": [
-          {
-            "name": "org",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
+      "/api/v1/projects/{project}/groups": {
+        "get": {
+          "summary": "List project groups",
+          "description": "List groups attached to a project, with the role each group's members get. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
             }
-          },
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
+          ],
+          "responses": {
+            "200": {
+              "description": "List of project groups",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "groups": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/ProjectGroup"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Project not found"
             }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Member removed"
-          },
-          "404": {
-            "description": "Member not found"
           }
         }
-      }
-    },
+      },
+      "/api/v1/projects/{project}/groups/{group_id}": {
+        "put": {
+          "summary": "Attach or update project group",
+          "description": "Attach a group to a project with a role, or change the role of an attached group. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "group_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectGroupUpdateRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Group attached or updated",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ProjectGroup"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid role"
+            },
+            "404": {
+              "description": "Project or group not found"
+            }
+          }
+        },
+        "delete": {
+          "summary": "Detach project group",
+          "description": "Detach a group from a project. Requires the global manage permission (administrators); project roles do not open this API.",
+          "tags": [
+            "Projects"
+          ],
+          "parameters": [
+            {
+              "name": "project",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "group_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Group detached"
+            },
+            "404": {
+              "description": "Group not attached"
+            }
+          }
+        }
+      },
     "/api/v1/openapi.json": {
       "get": {
         "summary": "OpenAPI specification",
@@ -7652,9 +7992,9 @@
                       "type": "string"
                     }
                   },
-                  "org": {
+                  "project": {
                     "type": "string",
-                    "description": "Move the repository to the named organization (global admin only; unknown organization: 404). Access of the old and new organization's members changes immediately."
+                    "description": "Move the repository to the named project (global admin only; unknown project: 404). Access of the old and new project's members changes immediately."
                   },
                   "presign_downloads": {
                     "type": "boolean",

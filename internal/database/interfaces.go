@@ -474,21 +474,30 @@ type Database interface {
 	ListPackageDeltas(ctx context.Context, repoID, toSHA256 string) ([]*models.PackageDelta, error)
 	DeletePackageDelta(ctx context.Context, id string) error
 
-	// Organization methods
-	CreateOrganization(ctx context.Context, org *models.Organization) error
-	GetOrganization(ctx context.Context, id string) (*models.Organization, error)
-	GetOrganizationByName(ctx context.Context, name string) (*models.Organization, error)
-	UpdateOrganization(ctx context.Context, org *models.Organization) error
-	DeleteOrganization(ctx context.Context, id string) error
-	ListOrganizations(ctx context.Context, userID string) ([]*models.Organization, error)
-	AddOrgMember(ctx context.Context, orgID, userID, role string) error
-	RemoveOrgMember(ctx context.Context, orgID, userID string) error
-	ListOrgMembers(ctx context.Context, orgID string) ([]*models.OrgMember, error)
-	GetOrgMember(ctx context.Context, orgID, userID string) (*models.OrgMember, error)
-	UpdateOrgMemberRole(ctx context.Context, orgID, userID, role string) error
-	// ListOrgGrantsByUser returns the user's organization memberships (cached
-	// like the other per-request auth lookups).
-	ListOrgGrantsByUser(ctx context.Context, userID string) ([]*models.OrgGrant, error)
+	// Project methods
+	CreateProject(ctx context.Context, project *models.Project) error
+	GetProject(ctx context.Context, id string) (*models.Project, error)
+	GetProjectByName(ctx context.Context, name string) (*models.Project, error)
+	UpdateProject(ctx context.Context, project *models.Project) error
+	DeleteProject(ctx context.Context, id string) error
+	// ListProjects returns the projects the user belongs to (recorded owner,
+	// member, or through a group).
+	ListProjects(ctx context.Context, userID string) ([]*models.Project, error)
+	ListAllProjects(ctx context.Context) ([]*models.Project, error)
+	AddProjectMember(ctx context.Context, projectID, userID, role string) error
+	RemoveProjectMember(ctx context.Context, projectID, userID string) error
+	ListProjectMembers(ctx context.Context, projectID string) ([]*models.ProjectMember, error)
+	GetProjectMember(ctx context.Context, projectID, userID string) (*models.ProjectMember, error)
+	UpdateProjectMemberRole(ctx context.Context, projectID, userID, role string) error
+	ListProjectGroups(ctx context.Context, projectID string) ([]*models.ProjectGroup, error)
+	GetProjectGroup(ctx context.Context, projectID, groupID string) (*models.ProjectGroup, error)
+	// SetProjectGroup attaches a group with role, or changes an existing role.
+	SetProjectGroup(ctx context.Context, projectID, groupID, role string, createdBy *string) error
+	RemoveProjectGroup(ctx context.Context, projectID, groupID string) error
+	// ListProjectGrantsByUser returns every project role the user holds:
+	// recorded owner, membership rows and group attachments, one grant per
+	// source (cached like the other per-request auth lookups).
+	ListProjectGrantsByUser(ctx context.Context, userID string) ([]*models.ProjectGrant, error)
 
 	// System settings methods
 	GetSystemSetting(ctx context.Context, key string) (string, error)

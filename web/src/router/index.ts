@@ -171,10 +171,10 @@ const routes: RouteRecordRaw[] = [
     meta: { crumbs: adminTrail('nav.storage'), requiresAuth: true, requiresAdmin: true },
   },
   {
-    path: '/admin/orgs',
-    name: 'admin-orgs',
-    component: () => import('../pages/admin/OrgsPage.vue'),
-    meta: { crumbs: adminTrail('adm.orgs.title'), requiresAuth: true, requiresAdmin: true },
+    path: '/admin/projects',
+    name: 'admin-projects',
+    component: () => import('../pages/admin/ProjectsPage.vue'),
+    meta: { crumbs: adminTrail('adm.projects.title'), requiresAuth: true, requiresAdmin: true },
   },
   {
     path: '/admin/webhooks',

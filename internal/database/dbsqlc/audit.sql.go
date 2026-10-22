@@ -12,7 +12,7 @@ import (
 )
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
-INSERT INTO audit_logs (action, actor_id, actor_type, details_json, resource_type, resource_id, repository_id, org_id, ip_address)
+INSERT INTO audit_logs (action, actor_id, actor_type, details_json, resource_type, resource_id, repository_id, project_id, ip_address)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
@@ -24,7 +24,7 @@ type InsertAuditLogParams struct {
 	ResourceType *string         `db:"resource_type" json:"resource_type"`
 	ResourceID   *string         `db:"resource_id" json:"resource_id"`
 	RepositoryID *string         `db:"repository_id" json:"repository_id"`
-	OrgID        *string         `db:"org_id" json:"org_id"`
+	ProjectID    *string         `db:"project_id" json:"project_id"`
 	IpAddress    *netip.Addr     `db:"ip_address" json:"ip_address"`
 }
 
@@ -37,7 +37,7 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 		arg.ResourceType,
 		arg.ResourceID,
 		arg.RepositoryID,
-		arg.OrgID,
+		arg.ProjectID,
 		arg.IpAddress,
 	)
 	return err

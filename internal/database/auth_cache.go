@@ -38,14 +38,14 @@ type authCache struct {
 	ttl time.Duration
 	now func() time.Time // test hook; nil means time.Now
 
-	mu     sync.Mutex
-	gen    uint64
-	tokens map[string]cacheEntry[*models.Token]
-	users  map[string]cacheEntry[*models.User]
-	groups map[string]cacheEntry[[]*models.Group]
-	perms  map[string]cacheEntry[[]*models.PermissionTarget]
-	repos  map[string]cacheEntry[*models.Repository]
-	orgs   map[string]cacheEntry[[]*models.OrgGrant]
+	mu       sync.Mutex
+	gen      uint64
+	tokens   map[string]cacheEntry[*models.Token]
+	users    map[string]cacheEntry[*models.User]
+	groups   map[string]cacheEntry[[]*models.Group]
+	perms    map[string]cacheEntry[[]*models.PermissionTarget]
+	repos    map[string]cacheEntry[*models.Repository]
+	projects map[string]cacheEntry[[]*models.ProjectGrant]
 }
 
 type cacheEntry[V any] struct {
@@ -73,7 +73,7 @@ func (c *authCache) invalidate() {
 	defer c.mu.Unlock()
 
 	c.gen++
-	c.tokens, c.users, c.groups, c.perms, c.repos, c.orgs = nil, nil, nil, nil, nil, nil
+	c.tokens, c.users, c.groups, c.perms, c.repos, c.projects = nil, nil, nil, nil, nil, nil
 }
 
 // cachedLookup returns the cached value for key in *m, or runs load and caches
@@ -156,8 +156,8 @@ func clonePermTargets(ts []*models.PermissionTarget) []*models.PermissionTarget 
 	return out
 }
 
-func cloneOrgGrants(gs []*models.OrgGrant) []*models.OrgGrant {
-	out := make([]*models.OrgGrant, len(gs))
+func cloneProjectGrants(gs []*models.ProjectGrant) []*models.ProjectGrant {
+	out := make([]*models.ProjectGrant, len(gs))
 
 	for i, g := range gs {
 		cp := *g
@@ -209,25 +209,25 @@ func (p *PostgresDB) GetRepositoryByName(ctx context.Context, name string) (*mod
 		func(ctx context.Context) (*models.Repository, error) { return p.GetRepositoryByNameUncached(ctx, name) })
 }
 
-// ListOrgGrantsByUser returns the organization memberships of a user (see
-// models.OrgGrant), from the auth cache when fresh.
-func (p *PostgresDB) ListOrgGrantsByUser(ctx context.Context, userID string) ([]*models.OrgGrant, error) {
-	return cachedLookup(ctx, &p.authCache, &p.authCache.orgs, userID, cloneOrgGrants,
-		func([]*models.OrgGrant) bool { return false },
-		func(ctx context.Context) ([]*models.OrgGrant, error) {
-			return p.listOrgGrantsByUserUncached(ctx, userID)
+// ListProjectGrantsByUser returns the project grants of a user (see
+// models.ProjectGrant), from the auth cache when fresh.
+func (p *PostgresDB) ListProjectGrantsByUser(ctx context.Context, userID string) ([]*models.ProjectGrant, error) {
+	return cachedLookup(ctx, &p.authCache, &p.authCache.projects, userID, cloneProjectGrants,
+		func([]*models.ProjectGrant) bool { return false },
+		func(ctx context.Context) ([]*models.ProjectGrant, error) {
+			return p.listProjectGrantsByUserUncached(ctx, userID)
 		})
 }
 
-func (p *PostgresDB) listOrgGrantsByUserUncached(ctx context.Context, userID string) ([]*models.OrgGrant, error) {
-	rows, err := p.q.ListOrgGrantsByUser(ctx, &userID)
+func (p *PostgresDB) listProjectGrantsByUserUncached(ctx context.Context, userID string) ([]*models.ProjectGrant, error) {
+	rows, err := p.q.ListProjectGrantsByUser(ctx, &userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list organization grants: %w", err)
+		return nil, fmt.Errorf("failed to list project grants: %w", err)
 	}
 
-	grants := make([]*models.OrgGrant, 0, len(rows))
+	grants := make([]*models.ProjectGrant, 0, len(rows))
 	for _, row := range rows {
-		grants = append(grants, &models.OrgGrant{OrgID: row.OrgID, Role: row.Role, MemberRole: row.MemberRole})
+		grants = append(grants, &models.ProjectGrant{ProjectID: row.ProjectID, Role: row.Role})
 	}
 
 	return grants, nil

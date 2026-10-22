@@ -786,27 +786,27 @@ func (m *provMockDB) SearchByProperty(_ context.Context, _, _, _ string) ([]stri
 }
 
 // Organization methods
-func (m *provMockDB) CreateOrganization(_ context.Context, _ *models.Organization) error { return nil }
-func (m *provMockDB) GetOrganization(_ context.Context, _ string) (*models.Organization, error) {
+func (m *provMockDB) CreateProject(_ context.Context, _ *models.Project) error { return nil }
+func (m *provMockDB) GetProject(_ context.Context, _ string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *provMockDB) GetOrganizationByName(_ context.Context, _ string) (*models.Organization, error) {
+func (m *provMockDB) GetProjectByName(_ context.Context, _ string) (*models.Project, error) {
 	return nil, nil
 }
-func (m *provMockDB) UpdateOrganization(_ context.Context, _ *models.Organization) error { return nil }
-func (m *provMockDB) DeleteOrganization(_ context.Context, _ string) error               { return nil }
-func (m *provMockDB) ListOrganizations(_ context.Context, _ string) ([]*models.Organization, error) {
+func (m *provMockDB) UpdateProject(_ context.Context, _ *models.Project) error { return nil }
+func (m *provMockDB) DeleteProject(_ context.Context, _ string) error          { return nil }
+func (m *provMockDB) ListProjects(_ context.Context, _ string) ([]*models.Project, error) {
 	return nil, nil
 }
-func (m *provMockDB) AddOrgMember(_ context.Context, _, _, _ string) error { return nil }
-func (m *provMockDB) RemoveOrgMember(_ context.Context, _, _ string) error { return nil }
-func (m *provMockDB) ListOrgMembers(_ context.Context, _ string) ([]*models.OrgMember, error) {
+func (m *provMockDB) AddProjectMember(_ context.Context, _, _, _ string) error { return nil }
+func (m *provMockDB) RemoveProjectMember(_ context.Context, _, _ string) error { return nil }
+func (m *provMockDB) ListProjectMembers(_ context.Context, _ string) ([]*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *provMockDB) GetOrgMember(_ context.Context, _, _ string) (*models.OrgMember, error) {
+func (m *provMockDB) GetProjectMember(_ context.Context, _, _ string) (*models.ProjectMember, error) {
 	return nil, nil
 }
-func (m *provMockDB) UpdateOrgMemberRole(_ context.Context, _, _, _ string) error { return nil }
+func (m *provMockDB) UpdateProjectMemberRole(_ context.Context, _, _, _ string) error { return nil }
 
 // System settings methods
 func (m *provMockDB) GetSystemSetting(_ context.Context, _ string) (string, error) { return "", nil }

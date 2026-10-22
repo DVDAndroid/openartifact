@@ -47,8 +47,8 @@ func newTestHandler(t *testing.T, ms *mockSearcher) (*Handler, func()) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 
-	mock.ExpectQuery(`SELECT id, name, org_id FROM repositories`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "org_id"}))
+	mock.ExpectQuery(`SELECT id, name, project_id FROM repositories`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "project_id"}))
 
 	log, _ := logger.New("error", "json", "stderr")
 	ev := auth.NewEvaluator(nil, log, true)
@@ -135,8 +135,8 @@ func TestHandlerSuccessfulSearch(t *testing.T) {
 	h.db = db
 
 	repoID := uuid.New().String()
-	mock2.ExpectQuery(`SELECT id, name, org_id FROM repositories`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "org_id"}).AddRow(repoID, "my-repo", nil))
+	mock2.ExpectQuery(`SELECT id, name, project_id FROM repositories`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "project_id"}).AddRow(repoID, "my-repo", nil))
 
 	w := httptest.NewRecorder()
 	r := requestWithPrincipal("GET", "/api/v1/search?q=lodash", adminPrincipal())
@@ -174,8 +174,8 @@ func TestHandlerEmptyResult(t *testing.T) {
 
 	h.db = db
 
-	mock2.ExpectQuery(`SELECT id, name, org_id FROM repositories`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "org_id"}))
+	mock2.ExpectQuery(`SELECT id, name, project_id FROM repositories`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "project_id"}))
 
 	w := httptest.NewRecorder()
 	r := requestWithPrincipal("GET", "/api/v1/search?q=nothing", adminPrincipal())

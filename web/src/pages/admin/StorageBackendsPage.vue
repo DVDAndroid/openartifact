@@ -457,7 +457,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             </AppButton>
             <AppButton variant="ghost" @click="closeDrawer">{{ t('common.cancel') }}</AppButton>
             <AppButton :loading="savingDrawer" :disabled="!form.name || !form.kind" @click="saveDrawer">
-              {{ drawerMode === 'create' ? t('adm.storage.createAction') : t('adm.orgs.saveAction') }}
+              {{ drawerMode === 'create' ? t('adm.storage.createAction') : t('adm.storage.saveAction') }}
             </AppButton>
           </template>
     </AdminDialog>
@@ -465,7 +465,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
     <ConfirmDialog
       :open="!!deleteTarget"
       :title="t('adm.storage.deleteTitle')"
-      :description="t('adm.orgs.deleteHint')"
+      :description="t('adm.storage.deleteHint')"
       :confirm-label="t('adm.storage.deleteAction')"
       :cancel-label="t('common.cancel')"
       :busy="deleting"
@@ -511,7 +511,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
             <!-- Confirmation input -->
             <div>
               <label for="storage-delete-confirm" class="block text-xs font-semibold text-foreground mb-1.5">
-                {{ t('adm.orgs.typeToConfirm') }}
+                {{ t('adm.storage.typeToConfirm') }}
                 <code class="font-mono text-danger bg-danger-soft px-1 py-0.5 rounded mx-1">{{ deleteTarget.name }}</code>
               </label>
               <input

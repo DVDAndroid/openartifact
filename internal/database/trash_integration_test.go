@@ -276,7 +276,7 @@ func TestTrashRepositoryHidesAndRestores(t *testing.T) {
 	}
 
 	// The name stays reserved until the purge.
-	dup := &models.Repository{Name: "trash-repo", Format: "maven", RepoType: "hosted", OrgID: new(systemOrgID)}
+	dup := &models.Repository{Name: "trash-repo", Format: "maven", RepoType: "hosted", ProjectID: new(systemOrgID)}
 	if err := pg.CreateRepository(ctx, dup); !IsUniqueViolation(err) {
 		t.Fatalf("re-creating a trashed name = %v, want unique violation", err)
 	}

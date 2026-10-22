@@ -99,7 +99,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                   </div>
                 </fieldset>
   
-                <RepoOrgSelect id="new-repo-org" v-model="org" />
+                <ProjectSelect id="new-repo-project" v-model="project" />
   
                 <label class="flex items-center gap-2 pt-1 text-sm">
                   <input v-model="isPublic" type="checkbox" class="accent-[rgb(var(--color-primary))]" />
@@ -128,7 +128,7 @@ import { allowedFormats, coerceFormat, upstreamUrlPlaceholder, upstreamUrlRequir
 import AdminDialog from './AdminDialog.vue'
 import AppButton from './AppButton.vue'
 import FormatBadge from './FormatBadge.vue'
-import RepoOrgSelect from './RepoOrgSelect.vue'
+import ProjectSelect from './ProjectSelect.vue'
 import { t } from '../i18n/en'
 
 const open = defineModel<boolean>({ default: false })
@@ -141,7 +141,7 @@ const name = ref('')
 const format = ref<FormatId>('docker')
 const type = ref<'hosted' | 'proxy' | 'group'>('hosted')
 const isPublic = ref(false)
-const org = ref('')
+const project = ref('')
 const upstreamUrl = ref('')
 const upstreamUsername = ref('')
 const upstreamPassword = ref('')
@@ -185,7 +185,7 @@ watch(open, async (isOpen) => {
   name.value = ''
   type.value = 'hosted'
   isPublic.value = false
-  org.value = ''
+  project.value = ''
   upstreamUrl.value = ''
   upstreamUsername.value = ''
   upstreamPassword.value = ''
@@ -212,7 +212,7 @@ async function handleCreate(): Promise<void> {
       public: isPublic.value,
       description: '',
       repo_type: type.value,
-      ...(org.value ? { org: org.value } : {}),
+      ...(project.value ? { project: project.value } : {}),
       ...(type.value === 'proxy'
         ? {
             upstream_url: upstreamUrl.value.trim() || undefined,

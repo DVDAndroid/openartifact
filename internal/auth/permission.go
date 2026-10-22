@@ -147,7 +147,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, principal Principal, repoName,
 		}
 	}
 
-	return e.orgAllows(ctx, principal, repoName, action)
+	return e.projectAllows(ctx, principal, repoName, action)
 }
 
 // principalTargets loads the permission targets that apply to a

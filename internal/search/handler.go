@@ -155,7 +155,7 @@ func (h *Handler) resolveReadableRepos(ctx context.Context, principal *auth.Prin
 		return nil, err
 	}
 
-	rows, err := h.db.QueryContext(ctx, `SELECT id, name, org_id FROM repositories WHERE deleted_at IS NULL`)
+	rows, err := h.db.QueryContext(ctx, `SELECT id, name, project_id FROM repositories WHERE deleted_at IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (h *Handler) resolveReadableRepos(ctx context.Context, principal *auth.Prin
 			repo  models.Repository
 		)
 
-		if err := rows.Scan(&rawID, &repo.Name, &repo.OrgID); err != nil {
+		if err := rows.Scan(&rawID, &repo.Name, &repo.ProjectID); err != nil {
 			return nil, err
 		}
 

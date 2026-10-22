@@ -69,7 +69,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 <p class="text-xs mt-1" :class="form.name && !nameValid ? 'text-danger' : 'text-muted'">{{ t('repos.new.nameHint') }}</p>
               </div>
 
-              <RepoOrgSelect id="repo-org" v-model="form.org" />
+              <ProjectSelect id="repo-project" v-model="form.project" />
 
               <!-- Visibility Toggle -->
               <div>
@@ -268,8 +268,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
                 <dd class="text-foreground">{{ types.find((ty) => ty.value === form.type)?.title }}</dd>
               </div>
               <div class="flex justify-between py-2 border-b border-border/50">
-                <dt class="text-muted">{{ t('repos.org.label') }}</dt>
-                <dd class="text-foreground font-mono">{{ form.org || SYSTEM_ORG_NAME }}</dd>
+                <dt class="text-muted">{{ t('repos.project.label') }}</dt>
+                <dd class="text-foreground font-mono">{{ form.project || SYSTEM_PROJECT_NAME }}</dd>
               </div>
               <div class="flex justify-between py-2 border-b border-border/50">
                 <dt class="text-muted">{{ t('repos.column.visibility') }}</dt>
@@ -327,8 +327,8 @@ import { createRepository, getRepository, updateRepository, listRepositories } f
 import { parseRetentionInput } from '../lib/trash'
 import type { Repository } from '../api/repositories'
 import FormatBadge from '../components/FormatBadge.vue'
-import RepoOrgSelect from '../components/RepoOrgSelect.vue'
-import { SYSTEM_ORG_NAME } from '../api/orgs'
+import ProjectSelect from '../components/ProjectSelect.vue'
+import { SYSTEM_PROJECT_NAME } from '../api/projects'
 import { t } from '../i18n/en'
 import { useToastStore } from '../stores/toast'
 import type { FormatId } from '../lib/formats'
@@ -370,7 +370,7 @@ const form = ref({
   type: 'hosted' as 'hosted' | 'proxy' | 'group',
   description: '',
   public: false,
-  org: '',
+  project: '',
   upstreamUrl: '',
   upstreamUsername: '',
   upstreamPassword: '',
@@ -378,8 +378,8 @@ const form = ref({
   trashRetention: '',
   immutableReleases: false,
 })
-// Organization the repository had when loaded (edit mode); '' is the system organization.
-const loadedOrg = ref('')
+// Project the repository had when loaded (edit mode); '' is the system project.
+const loadedProject = ref('')
 const loadError = ref('')
 const existing = ref<Repository[]>([])
 
@@ -428,12 +428,12 @@ onMounted(async () => {
         type: repo.repo_type || 'hosted',
         description: repo.description || '',
         public: repo.public || false,
-        org: repo.org && repo.org !== SYSTEM_ORG_NAME ? repo.org : '',
+        project: repo.project && repo.project !== SYSTEM_PROJECT_NAME ? repo.project : '',
         upstreamUrl: repo.upstream_url || '',
         trashRetention: repo.trash_retention_days == null ? '' : String(repo.trash_retention_days),
         immutableReleases: repo.immutable_releases ?? false,
       }
-      loadedOrg.value = form.value.org
+      loadedProject.value = form.value.project
     } catch (err) {
       loadError.value = err instanceof Error ? err.message : t('repoDetail.loadFailed')
     }
@@ -473,7 +473,7 @@ async function submit(): Promise<void> {
         public: form.value.public,
         trash_retention_days: parseRetentionInput(form.value.trashRetention) ?? null,
         immutable_releases: form.value.immutableReleases,
-        ...(form.value.org !== loadedOrg.value ? { org: form.value.org || SYSTEM_ORG_NAME } : {}),
+        ...(form.value.project !== loadedProject.value ? { project: form.value.project || SYSTEM_PROJECT_NAME } : {}),
         ...(form.value.type === 'proxy' ? { upstream_url: form.value.upstreamUrl.trim() } : {}),
       })
     } else {
@@ -485,7 +485,7 @@ async function submit(): Promise<void> {
         trash_retention_days: parseRetentionInput(form.value.trashRetention) ?? null,
         immutable_releases: form.value.immutableReleases,
         repo_type: form.value.type,
-        ...(form.value.org ? { org: form.value.org } : {}),
+        ...(form.value.project ? { project: form.value.project } : {}),
         ...(form.value.type === 'proxy'
           ? {
               upstream_url: form.value.upstreamUrl.trim() || undefined,

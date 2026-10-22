@@ -731,7 +731,7 @@ func (d *fakeDB) ListStorageBackends(context.Context) ([]*models.StorageBackend,
 	return nil, nil
 }
 
-func (d *fakeDB) ListOrganizations(context.Context, string) ([]*models.Organization, error) {
+func (d *fakeDB) ListProjects(context.Context, string) ([]*models.Project, error) {
 	return nil, nil
 }
 
@@ -742,3 +742,5 @@ func (d *fakeDB) ListPromotionPipelines(context.Context) ([]*models.PromotionPip
 func (d *fakeDB) ListReleaseBundles(context.Context, string, string, int, int) ([]*models.ReleaseBundle, int, error) {
 	return nil, 0, nil
 }
+
+func (d *fakeDB) ListAllProjects(context.Context) ([]*models.Project, error) { return nil, nil }

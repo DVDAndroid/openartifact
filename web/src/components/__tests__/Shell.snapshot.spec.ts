@@ -28,7 +28,7 @@ function makeRouter() {
       { path: '/admin/audit', name: 'admin-audit', component: { template: '<div />' } },
       { path: '/admin/storage', name: 'admin-storage', component: { template: '<div />' } },
       { path: '/admin/system', name: 'admin-system', component: { template: '<div />' } },
-      { path: '/admin/orgs', name: 'admin-orgs', component: { template: '<div />' } },
+      { path: '/admin/projects', name: 'admin-projects', component: { template: '<div />' } },
       { path: '/admin/backup', name: 'admin-backup', component: { template: '<div />' } },
       { path: '/admin/webhooks', name: 'admin-webhooks', component: { template: '<div />' } },
       { path: '/admin/ai', name: 'admin-ai', component: { template: '<div />' } },

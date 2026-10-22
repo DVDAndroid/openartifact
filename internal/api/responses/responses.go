@@ -76,9 +76,9 @@ type RepositoryResponse struct {
 	Description *string `json:"description"`
 	Public      bool    `json:"public"`
 	RepoType    string  `json:"repo_type"`
-	// Org is the name of the organization that owns the repository. Its
+	// Project is the name of the project that owns the repository. Its
 	// members get access to the repository (see docs/security/rbac.md).
-	Org       string `json:"org,omitempty"`
+	Project   string `json:"project,omitempty"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 
@@ -168,27 +168,41 @@ type SSOProviderResponse struct {
 	UpdatedAt          string            `json:"updated_at"`
 }
 
-// OrganizationResponse represents an organization in API responses.
-type OrganizationResponse struct {
+// ProjectResponse represents a project in API responses.
+type ProjectResponse struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	DisplayName *string `json:"display_name"`
 	Description *string `json:"description"`
 	OwnerID     *string `json:"owner_id"`
-	// MemberRole is the access level (read, write, admin) plain members get on
-	// the organization's repositories.
-	MemberRole string `json:"member_role"`
 	// Slug is the URL-safe unique identifier derived from the name.
-	Slug      string `json:"slug"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	Slug string `json:"slug"`
+	// AllowedFormats limits the formats of self-service repositories; null
+	// allows every format.
+	AllowedFormats   []string `json:"allowed_formats"`
+	AllowedRepoTypes []string `json:"allowed_repo_types"`
+	RepoNamePrefix   string   `json:"repo_name_prefix"`
+	AllowPublicRepos bool     `json:"allow_public_repos"`
+	MaxRepositories  int      `json:"max_repositories"`
+	TokenMaxTTLDays  int      `json:"token_max_ttl_days"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
 }
 
-// OrgMemberResponse represents an org member in API responses.
-type OrgMemberResponse struct {
+// ProjectMemberResponse represents a project member in API responses.
+type ProjectMemberResponse struct {
 	ID        string `json:"id"`
-	OrgID     string `json:"org_id"`
+	ProjectID string `json:"project_id"`
 	UserID    string `json:"user_id"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"created_at"`
+}
+
+// ProjectGroupResponse represents a group attached to a project.
+type ProjectGroupResponse struct {
+	ProjectID string `json:"project_id"`
+	GroupID   string `json:"group_id"`
+	GroupName string `json:"group_name"`
 	Role      string `json:"role"`
 	CreatedAt string `json:"created_at"`
 }

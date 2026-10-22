@@ -156,7 +156,7 @@ func TestAuthCache_RepositoryChangesVisible(t *testing.T) {
 	ctx := context.Background()
 	systemOrg := "00000000-0000-0000-0000-000000000001"
 
-	repo := &models.Repository{Name: "cache-repo", Format: "raw", RepoType: "hosted", OrgID: &systemOrg}
+	repo := &models.Repository{Name: "cache-repo", Format: "raw", RepoType: "hosted", ProjectID: &systemOrg}
 	if err := f.pg.CreateRepository(ctx, repo); err != nil {
 		t.Fatalf("CreateRepository: %v", err)
 	}

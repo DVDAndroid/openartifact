@@ -179,10 +179,10 @@ func (p *PostgresDB) Migrate(ctx context.Context) error {
 
 // repoColumns is the column list every repository read selects; repoScanDest
 // returns the matching Scan destinations.
-const repoColumns = `id, name, format, description, COALESCE(public, false), COALESCE(allow_full_unpublish, false), COALESCE(repo_type, 'hosted'), COALESCE(upstream_url, ''), COALESCE(upstream_username, ''), COALESCE(upstream_password_enc, ''), COALESCE(cache_ttl_seconds, 3600), COALESCE(negative_cache_ttl_seconds, 60), COALESCE(max_stale_seconds, 604800), COALESCE(blocked, false), org_id, presign_downloads, trash_retention_days, immutable_releases, deleted_at, COALESCE(deleted_by, ''), created_at, updated_at`
+const repoColumns = `id, name, format, description, COALESCE(public, false), COALESCE(allow_full_unpublish, false), COALESCE(repo_type, 'hosted'), COALESCE(upstream_url, ''), COALESCE(upstream_username, ''), COALESCE(upstream_password_enc, ''), COALESCE(cache_ttl_seconds, 3600), COALESCE(negative_cache_ttl_seconds, 60), COALESCE(max_stale_seconds, 604800), COALESCE(blocked, false), project_id, presign_downloads, trash_retention_days, immutable_releases, deleted_at, COALESCE(deleted_by, ''), created_at, updated_at`
 
 func repoScanDest(r *models.Repository) []any {
-	return []any{&r.ID, &r.Name, &r.Format, &r.Description, &r.Public, &r.AllowFullUnpublish, &r.RepoType, &r.UpstreamURL, &r.UpstreamUsername, &r.UpstreamPasswordEnc, &r.CacheTTLSeconds, &r.NegativeCacheTTLSeconds, &r.MaxStaleSeconds, &r.Blocked, &r.OrgID, &r.PresignDownloads, &r.TrashRetentionDays, &r.ImmutableReleases, &r.DeletedAt, &r.DeletedBy, &r.CreatedAt, &r.UpdatedAt}
+	return []any{&r.ID, &r.Name, &r.Format, &r.Description, &r.Public, &r.AllowFullUnpublish, &r.RepoType, &r.UpstreamURL, &r.UpstreamUsername, &r.UpstreamPasswordEnc, &r.CacheTTLSeconds, &r.NegativeCacheTTLSeconds, &r.MaxStaleSeconds, &r.Blocked, &r.ProjectID, &r.PresignDownloads, &r.TrashRetentionDays, &r.ImmutableReleases, &r.DeletedAt, &r.DeletedBy, &r.CreatedAt, &r.UpdatedAt}
 }
 
 func (p *PostgresDB) GetRepositoryByNameUncached(ctx context.Context, name string) (*models.Repository, error) {
@@ -326,8 +326,8 @@ type repoExecer interface {
 
 func updateRepositoryRow(ctx context.Context, db repoExecer, repo *models.Repository) error {
 	_, err := db.ExecContext(ctx,
-		`UPDATE repositories SET description = $1, public = $2, repo_type = $3, upstream_url = NULLIF($4,''), upstream_username = NULLIF($5,''), upstream_password_enc = NULLIF($6,''), cache_ttl_seconds = $7, negative_cache_ttl_seconds = $8, max_stale_seconds = $9, blocked = $10, org_id = $11, trash_retention_days = $12, immutable_releases = $13, presign_downloads = $15, updated_at = now() WHERE id = $14 AND deleted_at IS NULL`,
-		repo.Description, repo.Public, repo.RepoType, repo.UpstreamURL, repo.UpstreamUsername, repo.UpstreamPasswordEnc, repo.CacheTTLSeconds, repo.NegativeCacheTTLSeconds, repo.MaxStaleSeconds, repo.Blocked, repo.OrgID, repo.TrashRetentionDays, repo.ImmutableReleases, repo.ID, repo.PresignDownloads,
+		`UPDATE repositories SET description = $1, public = $2, repo_type = $3, upstream_url = NULLIF($4,''), upstream_username = NULLIF($5,''), upstream_password_enc = NULLIF($6,''), cache_ttl_seconds = $7, negative_cache_ttl_seconds = $8, max_stale_seconds = $9, blocked = $10, project_id = $11, trash_retention_days = $12, immutable_releases = $13, presign_downloads = $15, updated_at = now() WHERE id = $14 AND deleted_at IS NULL`,
+		repo.Description, repo.Public, repo.RepoType, repo.UpstreamURL, repo.UpstreamUsername, repo.UpstreamPasswordEnc, repo.CacheTTLSeconds, repo.NegativeCacheTTLSeconds, repo.MaxStaleSeconds, repo.Blocked, repo.ProjectID, repo.TrashRetentionDays, repo.ImmutableReleases, repo.ID, repo.PresignDownloads,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update repository: %w", err)
@@ -442,8 +442,8 @@ func (p *PostgresDB) CreateRepository(ctx context.Context, repo *models.Reposito
 	}
 
 	return p.db.QueryRowContext(ctx,
-		`INSERT INTO repositories (id, name, format, description, public, repo_type, upstream_url, upstream_username, upstream_password_enc, cache_ttl_seconds, negative_cache_ttl_seconds, max_stale_seconds, blocked, org_id, trash_retention_days, immutable_releases, presign_downloads, allow_full_unpublish) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id, created_at, updated_at`,
-		repo.Name, repo.Format, repo.Description, repo.Public, repoType, repo.UpstreamURL, repo.UpstreamUsername, repo.UpstreamPasswordEnc, repo.CacheTTLSeconds, repo.NegativeCacheTTLSeconds, repo.MaxStaleSeconds, repo.Blocked, repo.OrgID, repo.TrashRetentionDays, repo.ImmutableReleases, repo.PresignDownloads, repo.AllowFullUnpublish,
+		`INSERT INTO repositories (id, name, format, description, public, repo_type, upstream_url, upstream_username, upstream_password_enc, cache_ttl_seconds, negative_cache_ttl_seconds, max_stale_seconds, blocked, project_id, trash_retention_days, immutable_releases, presign_downloads, allow_full_unpublish) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id, created_at, updated_at`,
+		repo.Name, repo.Format, repo.Description, repo.Public, repoType, repo.UpstreamURL, repo.UpstreamUsername, repo.UpstreamPasswordEnc, repo.CacheTTLSeconds, repo.NegativeCacheTTLSeconds, repo.MaxStaleSeconds, repo.Blocked, repo.ProjectID, repo.TrashRetentionDays, repo.ImmutableReleases, repo.PresignDownloads, repo.AllowFullUnpublish,
 	).Scan(&repo.ID, &repo.CreatedAt, &repo.UpdatedAt)
 }
 
@@ -2601,7 +2601,7 @@ func (p *PostgresDB) InsertAuditLog(ctx context.Context, event *models.AuditLog)
 		ResourceType: event.ResourceType,
 		ResourceID:   event.ResourceID,
 		RepositoryID: event.RepositoryID,
-		OrgID:        event.OrgID,
+		ProjectID:    event.ProjectID,
 		IpAddress:    ip,
 	}); err != nil {
 		return fmt.Errorf("insert audit log: %w", err)
@@ -2664,7 +2664,7 @@ func (p *PostgresDB) ListAuditLogs(ctx context.Context, params models.AuditListP
 	// The formatted parts are the predicate built by auditFilterWhere from
 	// constant clauses and $n placeholders (values are always bound
 	// arguments) and placeholder numbers; no caller input reaches the text.
-	query := fmt.Sprintf("SELECT id, action, org_id, repository_id, actor_id, actor_type, details_json::text, resource_type, resource_id, host(ip_address) AS ip_address, created_at FROM audit_logs %s ORDER BY created_at DESC, id LIMIT $%d OFFSET $%d", where, len(args)-1, len(args)) //nolint:gosec // G201: where is built from constant clauses with bound placeholders
+	query := fmt.Sprintf("SELECT id, action, project_id, repository_id, actor_id, actor_type, details_json::text, resource_type, resource_id, host(ip_address) AS ip_address, created_at FROM audit_logs %s ORDER BY created_at DESC, id LIMIT $%d OFFSET $%d", where, len(args)-1, len(args)) //nolint:gosec // G201: where is built from constant clauses with bound placeholders
 
 	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -2682,7 +2682,7 @@ func (p *PostgresDB) ListAuditLogs(ctx context.Context, params models.AuditListP
 			ipStr      *string
 		)
 
-		if err := rows.Scan(&l.ID, &l.Action, &l.OrgID, &l.RepositoryID, &l.ActorID, &l.ActorType, &detailsStr, &l.ResourceType, &l.ResourceID, &ipStr, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.Action, &l.ProjectID, &l.RepositoryID, &l.ActorID, &l.ActorType, &detailsStr, &l.ResourceType, &l.ResourceID, &ipStr, &l.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan audit log: %w", err)
 		}
 
@@ -5298,182 +5298,193 @@ func (p *PostgresDB) SearchByProperty(ctx context.Context, repoID, key, value st
 	return result, nil
 }
 
-// Organization methods
+// Project methods
 
-func (p *PostgresDB) CreateOrganization(ctx context.Context, org *models.Organization) error {
+func projectFromRow(row *dbsqlc.Project) *models.Project {
+	return &models.Project{
+		ID:               row.ID,
+		Name:             row.Name,
+		DisplayName:      row.DisplayName,
+		Description:      row.Description,
+		OwnerID:          row.OwnerID,
+		Slug:             row.Slug,
+		AllowedFormats:   row.AllowedFormats,
+		AllowedRepoTypes: row.AllowedRepoTypes,
+		RepoNamePrefix:   row.RepoNamePrefix,
+		AllowPublicRepos: row.AllowPublicRepos,
+		MaxRepositories:  int(row.MaxRepositories),
+		TokenMaxTTLDays:  int(row.TokenMaxTtlDays),
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+	}
+}
+
+func (p *PostgresDB) CreateProject(ctx context.Context, project *models.Project) error {
 	// The recorded owner is an implicit member: cached grants must not outlive this write.
 	defer p.authCache.invalidate()
 
-	memberRole := org.MemberRole
-	if memberRole == "" {
-		memberRole = models.OrgAccessRead
+	if project.Slug == "" {
+		project.Slug = models.ProjectSlug(project.Name) // e.g. restored from a backup that predates slugs
 	}
 
-	if org.Slug == "" {
-		org.Slug = models.OrgSlug(org.Name) // e.g. restored from a backup that predates slugs
+	// Unset policy fields take the column defaults.
+	if project.AllowedRepoTypes == nil {
+		project.AllowedRepoTypes = []string{models.ProjectRepoTypeHosted}
 	}
 
-	row, err := p.q.CreateOrganization(ctx, dbsqlc.CreateOrganizationParams{
-		Name:        org.Name,
-		DisplayName: org.DisplayName,
-		Description: org.Description,
-		OwnerID:     org.OwnerID,
-		MemberRole:  memberRole,
-		Slug:        org.Slug,
+	row, err := p.q.CreateProject(ctx, dbsqlc.CreateProjectParams{
+		Name:             project.Name,
+		Slug:             project.Slug,
+		DisplayName:      project.DisplayName,
+		Description:      project.Description,
+		OwnerID:          project.OwnerID,
+		AllowedFormats:   project.AllowedFormats,
+		AllowedRepoTypes: project.AllowedRepoTypes,
+		RepoNamePrefix:   project.RepoNamePrefix,
+		AllowPublicRepos: project.AllowPublicRepos,
+		MaxRepositories:  int32(project.MaxRepositories), //nolint:gosec // validated range by callers, column is integer
+		TokenMaxTtlDays:  int32(project.TokenMaxTTLDays), //nolint:gosec // validated range by callers, column is integer
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create organization: %w", err)
+		return fmt.Errorf("failed to create project: %w", err)
 	}
 
-	org.ID = row.ID
-	org.MemberRole = memberRole
-	org.CreatedAt = row.CreatedAt
-	org.UpdatedAt = row.UpdatedAt
+	project.ID = row.ID
+	project.CreatedAt = row.CreatedAt
+	project.UpdatedAt = row.UpdatedAt
 
 	return nil
 }
 
-func (p *PostgresDB) GetOrganization(ctx context.Context, id string) (*models.Organization, error) {
-	row, err := p.q.GetOrganization(ctx, id)
+func (p *PostgresDB) GetProject(ctx context.Context, id string) (*models.Project, error) {
+	row, err := p.q.GetProject(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // standard Go not-found pattern: nil pointer with nil error
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get organization: %w", err)
+		return nil, fmt.Errorf("failed to get project: %w", err)
 	}
 
-	return &models.Organization{
-		ID:          row.ID,
-		Name:        row.Name,
-		DisplayName: row.DisplayName,
-		Description: row.Description,
-		OwnerID:     row.OwnerID,
-		MemberRole:  row.MemberRole,
-		Slug:        row.Slug,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
-	}, nil
+	return projectFromRow(&row), nil
 }
 
-func (p *PostgresDB) GetOrganizationByName(ctx context.Context, name string) (*models.Organization, error) {
-	row, err := p.q.GetOrganizationByName(ctx, name)
+func (p *PostgresDB) GetProjectByName(ctx context.Context, name string) (*models.Project, error) {
+	row, err := p.q.GetProjectByName(ctx, name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // standard Go not-found pattern: nil pointer with nil error
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get organization by name: %w", err)
+		return nil, fmt.Errorf("failed to get project by name: %w", err)
 	}
 
-	return &models.Organization{
-		ID:          row.ID,
-		Name:        row.Name,
-		DisplayName: row.DisplayName,
-		Description: row.Description,
-		OwnerID:     row.OwnerID,
-		MemberRole:  row.MemberRole,
-		Slug:        row.Slug,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
-	}, nil
+	return projectFromRow(&row), nil
 }
 
-func (p *PostgresDB) UpdateOrganization(ctx context.Context, org *models.Organization) error {
-	// member_role and owner_id change what members may do.
+func (p *PostgresDB) UpdateProject(ctx context.Context, project *models.Project) error {
+	// owner_id changes what members may do.
 	defer p.authCache.invalidate()
 
-	err := p.q.UpdateOrganization(ctx, dbsqlc.UpdateOrganizationParams{
-		DisplayName: org.DisplayName,
-		Description: org.Description,
-		OwnerID:     org.OwnerID,
-		MemberRole:  org.MemberRole,
-		ID:          org.ID,
+	err := p.q.UpdateProject(ctx, dbsqlc.UpdateProjectParams{
+		DisplayName:      project.DisplayName,
+		Description:      project.Description,
+		OwnerID:          project.OwnerID,
+		AllowedFormats:   project.AllowedFormats,
+		AllowedRepoTypes: project.AllowedRepoTypes,
+		RepoNamePrefix:   project.RepoNamePrefix,
+		AllowPublicRepos: project.AllowPublicRepos,
+		MaxRepositories:  int32(project.MaxRepositories), //nolint:gosec // validated range by callers, column is integer
+		TokenMaxTtlDays:  int32(project.TokenMaxTTLDays), //nolint:gosec // validated range by callers, column is integer
+		ID:               project.ID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update organization: %w", err)
+		return fmt.Errorf("failed to update project: %w", err)
 	}
 
 	return nil
 }
 
-func (p *PostgresDB) DeleteOrganization(ctx context.Context, id string) error {
+func (p *PostgresDB) DeleteProject(ctx context.Context, id string) error {
 	defer p.authCache.invalidate()
 
-	err := p.q.DeleteOrganization(ctx, id)
+	err := p.q.DeleteProject(ctx, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete organization: %w", err)
+		return fmt.Errorf("failed to delete project: %w", err)
 	}
 
 	return nil
 }
 
-func (p *PostgresDB) ListOrganizations(ctx context.Context, userID string) ([]*models.Organization, error) {
-	rows, err := p.q.ListOrganizationsByUser(ctx, &userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list organizations: %w", err)
+func projectsFromRows(rows []dbsqlc.Project) []*models.Project {
+	projects := make([]*models.Project, 0, len(rows))
+
+	for i := range rows {
+		projects = append(projects, projectFromRow(&rows[i]))
 	}
 
-	orgs := make([]*models.Organization, 0, len(rows))
+	return projects
+}
+
+func (p *PostgresDB) ListProjects(ctx context.Context, userID string) ([]*models.Project, error) {
+	rows, err := p.q.ListProjectsByUser(ctx, &userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+
+	return projectsFromRows(rows), nil
+}
+
+func (p *PostgresDB) ListAllProjects(ctx context.Context) ([]*models.Project, error) {
+	rows, err := p.q.ListAllProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all projects: %w", err)
+	}
+
+	return projectsFromRows(rows), nil
+}
+
+func (p *PostgresDB) AddProjectMember(ctx context.Context, projectID, userID, role string) error {
+	defer p.authCache.invalidate()
+
+	_, err := p.q.AddProjectMember(ctx, dbsqlc.AddProjectMemberParams{
+		ProjectID: projectID,
+		UserID:    userID,
+		Role:      role,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add project member: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresDB) RemoveProjectMember(ctx context.Context, projectID, userID string) error {
+	defer p.authCache.invalidate()
+
+	err := p.q.RemoveProjectMember(ctx, dbsqlc.RemoveProjectMemberParams{
+		ProjectID: projectID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to remove project member: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresDB) ListProjectMembers(ctx context.Context, projectID string) ([]*models.ProjectMember, error) {
+	rows, err := p.q.ListProjectMembers(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project members: %w", err)
+	}
+
+	members := make([]*models.ProjectMember, 0, len(rows))
 
 	for _, row := range rows {
-		orgs = append(orgs, &models.Organization{
-			ID:          row.ID,
-			Name:        row.Name,
-			DisplayName: row.DisplayName,
-			Description: row.Description,
-			OwnerID:     row.OwnerID,
-			MemberRole:  row.MemberRole,
-			Slug:        row.Slug,
-			CreatedAt:   row.CreatedAt,
-			UpdatedAt:   row.UpdatedAt,
-		})
-	}
-
-	return orgs, nil
-}
-
-func (p *PostgresDB) AddOrgMember(ctx context.Context, orgID, userID, role string) error {
-	defer p.authCache.invalidate()
-
-	_, err := p.q.AddOrgMember(ctx, dbsqlc.AddOrgMemberParams{
-		OrgID:  orgID,
-		UserID: userID,
-		Role:   role,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to add organization member: %w", err)
-	}
-
-	return nil
-}
-
-func (p *PostgresDB) RemoveOrgMember(ctx context.Context, orgID, userID string) error {
-	defer p.authCache.invalidate()
-
-	err := p.q.RemoveOrgMember(ctx, dbsqlc.RemoveOrgMemberParams{
-		OrgID:  orgID,
-		UserID: userID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to remove organization member: %w", err)
-	}
-
-	return nil
-}
-
-func (p *PostgresDB) ListOrgMembers(ctx context.Context, orgID string) ([]*models.OrgMember, error) {
-	rows, err := p.q.ListOrgMembers(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list organization members: %w", err)
-	}
-
-	members := make([]*models.OrgMember, 0, len(rows))
-
-	for _, row := range rows {
-		members = append(members, &models.OrgMember{
+		members = append(members, &models.ProjectMember{
 			ID:        idString(row.ID),
-			OrgID:     row.OrgID,
+			ProjectID: row.ProjectID,
 			UserID:    row.UserID,
 			Role:      row.Role,
 			CreatedAt: row.CreatedAt,
@@ -5483,38 +5494,109 @@ func (p *PostgresDB) ListOrgMembers(ctx context.Context, orgID string) ([]*model
 	return members, nil
 }
 
-func (p *PostgresDB) GetOrgMember(ctx context.Context, orgID, userID string) (*models.OrgMember, error) {
-	row, err := p.q.GetOrgMember(ctx, dbsqlc.GetOrgMemberParams{
-		OrgID:  orgID,
-		UserID: userID,
+func (p *PostgresDB) GetProjectMember(ctx context.Context, projectID, userID string) (*models.ProjectMember, error) {
+	row, err := p.q.GetProjectMember(ctx, dbsqlc.GetProjectMemberParams{
+		ProjectID: projectID,
+		UserID:    userID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // standard Go not-found pattern: nil pointer with nil error
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get organization member: %w", err)
+		return nil, fmt.Errorf("failed to get project member: %w", err)
 	}
 
-	return &models.OrgMember{
+	return &models.ProjectMember{
 		ID:        idString(row.ID),
-		OrgID:     row.OrgID,
+		ProjectID: row.ProjectID,
 		UserID:    row.UserID,
 		Role:      row.Role,
 		CreatedAt: row.CreatedAt,
 	}, nil
 }
 
-func (p *PostgresDB) UpdateOrgMemberRole(ctx context.Context, orgID, userID, role string) error {
+func (p *PostgresDB) UpdateProjectMemberRole(ctx context.Context, projectID, userID, role string) error {
 	defer p.authCache.invalidate()
 
-	err := p.q.UpdateOrgMemberRole(ctx, dbsqlc.UpdateOrgMemberRoleParams{
-		Role:   role,
-		OrgID:  orgID,
-		UserID: userID,
+	err := p.q.UpdateProjectMemberRole(ctx, dbsqlc.UpdateProjectMemberRoleParams{
+		Role:      role,
+		ProjectID: projectID,
+		UserID:    userID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update organization member role: %w", err)
+		return fmt.Errorf("failed to update project member role: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresDB) ListProjectGroups(ctx context.Context, projectID string) ([]*models.ProjectGroup, error) {
+	rows, err := p.q.ListProjectGroups(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list project groups: %w", err)
+	}
+
+	groups := make([]*models.ProjectGroup, 0, len(rows))
+
+	for _, row := range rows {
+		groups = append(groups, &models.ProjectGroup{
+			ProjectID: row.ProjectID,
+			GroupID:   row.GroupID,
+			GroupName: row.GroupName,
+			Role:      row.Role,
+			CreatedBy: row.CreatedBy,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+
+	return groups, nil
+}
+
+func (p *PostgresDB) GetProjectGroup(ctx context.Context, projectID, groupID string) (*models.ProjectGroup, error) {
+	row, err := p.q.GetProjectGroup(ctx, dbsqlc.GetProjectGroupParams{ProjectID: projectID, GroupID: groupID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // standard Go not-found pattern: nil pointer with nil error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project group: %w", err)
+	}
+
+	return &models.ProjectGroup{
+		ProjectID: row.ProjectID,
+		GroupID:   row.GroupID,
+		GroupName: row.GroupName,
+		Role:      row.Role,
+		CreatedBy: row.CreatedBy,
+		CreatedAt: row.CreatedAt,
+	}, nil
+}
+
+// SetProjectGroup attaches the group to the project with role, or changes the
+// role of an existing attachment.
+func (p *PostgresDB) SetProjectGroup(ctx context.Context, projectID, groupID, role string, createdBy *string) error {
+	defer p.authCache.invalidate()
+
+	err := p.q.SetProjectGroup(ctx, dbsqlc.SetProjectGroupParams{
+		ProjectID: projectID,
+		GroupID:   groupID,
+		Role:      role,
+		CreatedBy: createdBy,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set project group: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresDB) RemoveProjectGroup(ctx context.Context, projectID, groupID string) error {
+	defer p.authCache.invalidate()
+
+	err := p.q.RemoveProjectGroup(ctx, dbsqlc.RemoveProjectGroupParams{ProjectID: projectID, GroupID: groupID})
+	if err != nil {
+		return fmt.Errorf("failed to remove project group: %w", err)
 	}
 
 	return nil

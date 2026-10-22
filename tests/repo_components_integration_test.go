@@ -40,7 +40,7 @@ func newRepo(t *testing.T, pg *database.PostgresDB, name, format string) string 
 	t.Helper()
 
 	systemOrg := "00000000-0000-0000-0000-000000000001"
-	repo := &models.Repository{Name: name, Format: format, RepoType: "hosted", OrgID: &systemOrg}
+	repo := &models.Repository{Name: name, Format: format, RepoType: "hosted", ProjectID: &systemOrg}
 	if err := pg.CreateRepository(context.Background(), repo); err != nil {
 		t.Fatalf("CreateRepository(%s): %v", name, err)
 	}

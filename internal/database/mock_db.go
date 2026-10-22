@@ -876,44 +876,59 @@ func (m *BaseMockDB) ListPackageDeltas(ctx context.Context, repoID, toSHA256 str
 func (m *BaseMockDB) DeletePackageDelta(ctx context.Context, id string) error {
 	return errNotImpl("DeletePackageDelta")
 }
-func (m *BaseMockDB) CreateOrganization(ctx context.Context, org *models.Organization) error {
-	return errNotImpl("CreateOrganization")
+func (m *BaseMockDB) CreateProject(ctx context.Context, project *models.Project) error {
+	return errNotImpl("CreateProject")
 }
-func (m *BaseMockDB) GetOrganization(ctx context.Context, id string) (*models.Organization, error) {
-	return nil, errNotImpl("GetOrganization")
+func (m *BaseMockDB) GetProject(ctx context.Context, id string) (*models.Project, error) {
+	return nil, errNotImpl("GetProject")
 }
-func (m *BaseMockDB) GetOrganizationByName(ctx context.Context, name string) (*models.Organization, error) {
-	return nil, errNotImpl("GetOrganizationByName")
+func (m *BaseMockDB) GetProjectByName(ctx context.Context, name string) (*models.Project, error) {
+	return nil, errNotImpl("GetProjectByName")
 }
-func (m *BaseMockDB) UpdateOrganization(ctx context.Context, org *models.Organization) error {
-	return errNotImpl("UpdateOrganization")
+func (m *BaseMockDB) UpdateProject(ctx context.Context, project *models.Project) error {
+	return errNotImpl("UpdateProject")
 }
-func (m *BaseMockDB) DeleteOrganization(ctx context.Context, id string) error {
-	return errNotImpl("DeleteOrganization")
+func (m *BaseMockDB) DeleteProject(ctx context.Context, id string) error {
+	return errNotImpl("DeleteProject")
 }
-func (m *BaseMockDB) ListOrganizations(ctx context.Context, userID string) ([]*models.Organization, error) {
-	return nil, errNotImpl("ListOrganizations")
+func (m *BaseMockDB) ListAllProjects(ctx context.Context) ([]*models.Project, error) {
+	return nil, errNotImpl("ListAllProjects")
 }
-func (m *BaseMockDB) AddOrgMember(ctx context.Context, orgID, userID, role string) error {
-	return errNotImpl("AddOrgMember")
+func (m *BaseMockDB) ListProjectGroups(ctx context.Context, projectID string) ([]*models.ProjectGroup, error) {
+	return nil, errNotImpl("ListProjectGroups")
 }
-func (m *BaseMockDB) RemoveOrgMember(ctx context.Context, orgID, userID string) error {
-	return errNotImpl("RemoveOrgMember")
+func (m *BaseMockDB) GetProjectGroup(ctx context.Context, projectID, groupID string) (*models.ProjectGroup, error) {
+	return nil, errNotImpl("GetProjectGroup")
 }
-func (m *BaseMockDB) ListOrgMembers(ctx context.Context, orgID string) ([]*models.OrgMember, error) {
-	return nil, errNotImpl("ListOrgMembers")
+func (m *BaseMockDB) SetProjectGroup(ctx context.Context, projectID, groupID, role string, createdBy *string) error {
+	return errNotImpl("SetProjectGroup")
 }
-func (m *BaseMockDB) GetOrgMember(ctx context.Context, orgID, userID string) (*models.OrgMember, error) {
-	return nil, errNotImpl("GetOrgMember")
+func (m *BaseMockDB) RemoveProjectGroup(ctx context.Context, projectID, groupID string) error {
+	return errNotImpl("RemoveProjectGroup")
+}
+func (m *BaseMockDB) ListProjects(ctx context.Context, userID string) ([]*models.Project, error) {
+	return nil, errNotImpl("ListProjects")
+}
+func (m *BaseMockDB) AddProjectMember(ctx context.Context, projectID, userID, role string) error {
+	return errNotImpl("AddProjectMember")
+}
+func (m *BaseMockDB) RemoveProjectMember(ctx context.Context, projectID, userID string) error {
+	return errNotImpl("RemoveProjectMember")
+}
+func (m *BaseMockDB) ListProjectMembers(ctx context.Context, projectID string) ([]*models.ProjectMember, error) {
+	return nil, errNotImpl("ListProjectMembers")
+}
+func (m *BaseMockDB) GetProjectMember(ctx context.Context, projectID, userID string) (*models.ProjectMember, error) {
+	return nil, errNotImpl("GetProjectMember")
 }
 
-// ListOrgGrantsByUser reports no memberships: the evaluator consults it for
+// ListProjectGrantsByUser reports no grants: the evaluator consults it for
 // every request a permission target did not already allow.
-func (m *BaseMockDB) ListOrgGrantsByUser(ctx context.Context, userID string) ([]*models.OrgGrant, error) {
+func (m *BaseMockDB) ListProjectGrantsByUser(ctx context.Context, userID string) ([]*models.ProjectGrant, error) {
 	return nil, nil
 }
-func (m *BaseMockDB) UpdateOrgMemberRole(ctx context.Context, orgID, userID, role string) error {
-	return errNotImpl("UpdateOrgMemberRole")
+func (m *BaseMockDB) UpdateProjectMemberRole(ctx context.Context, projectID, userID, role string) error {
+	return errNotImpl("UpdateProjectMemberRole")
 }
 func (m *BaseMockDB) GetSystemSetting(ctx context.Context, key string) (string, error) {
 	return "", errNotImpl("GetSystemSetting")

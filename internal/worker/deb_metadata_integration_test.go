@@ -37,7 +37,7 @@ func debRepo(t *testing.T, pg *database.PostgresDB, name string) (string, string
 	ctx := context.Background()
 	org := trashTestOrgID
 
-	repo := &models.Repository{Name: name, Format: "deb", RepoType: "hosted", OrgID: &org}
+	repo := &models.Repository{Name: name, Format: "deb", RepoType: "hosted", ProjectID: &org}
 	if err := pg.CreateRepository(ctx, repo); err != nil {
 		t.Fatalf("CreateRepository(%s): %v", name, err)
 	}

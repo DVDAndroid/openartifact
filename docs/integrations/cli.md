@@ -77,7 +77,7 @@ Commands marked *admin* need the global `manage` permission. IDs are the values 
 | `search` | `[--repo R] [--fmt F] [--limit N] <query>` (default limit 50; put flags before the query) |
 | `user` *admin* | `list`, `create --username U --email E [--password-stdin] [--full-name N]`, `show <id>`, `update <id> [--email E] [--full-name N] [--disabled[=false]]`, `delete <id>` |
 | `group` *admin* | `list`, `create <name> [--description D]`, `show <id>`, `delete <id>`, `members <id>`, `add-member <id> <user-id>`, `rm-member <id> <user-id>` |
-| `org` | `list`, `create <name> [--display-name N] [--description D]`, `show <name>`, `delete <name>`, `members <name>`, `add-member <name> <user-id> [--role member\|owner]`, `rm-member <name> <user-id>` |
+| `project` | `list`, `create <name> [--display-name N] [--description D]`, `show <name>`, `delete <name>`, `members <name>`, `add-member <name> <user-id> [--role viewer\|developer\|maintainer\|owner]` (default `viewer`), `rm-member <name> <user-id>`, `groups <name>`, `add-group <name> <group-id> [--role viewer\|developer\|maintainer]`, `rm-group <name> <group-id>` |
 | `token` *admin* | `list` (all tokens), `revoke <id>` |
 | `gpg` *admin* | `list`, `import --key <armored-file>`, `generate --name N --email E [--bits 4096]`, `delete <fingerprint>` |
 | `storage` *admin* | `list`, `create --name N [--type filesystem\|s3\|gcs\|azure\|garage\|seaweedfs\|oci] [--config JSON \| --config-file FILE\|-] [--default]`, `show <name>`, `update <name> [--config JSON \| --config-file FILE\|-] [--default[=false]]`, `delete <name>`, `test <name>` (exits 1 when the backend check fails) |

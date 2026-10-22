@@ -68,7 +68,7 @@ func (db *fakeTrashDB) GetPermissionTargetsForPrincipal(context.Context, string,
 	return db.targets, nil
 }
 
-func (db *fakeTrashDB) ListOrgGrantsByUser(context.Context, string) ([]*models.OrgGrant, error) {
+func (db *fakeTrashDB) ListProjectGrantsByUser(context.Context, string) ([]*models.ProjectGrant, error) {
 	return nil, nil
 }
 
@@ -844,7 +844,7 @@ func (c *captureUpdateDB) UpdateRepository(_ context.Context, repo *models.Repos
 	return nil
 }
 
-func (c *captureUpdateDB) GetOrganizationByID(context.Context, string) (*models.Organization, error) {
+func (c *captureUpdateDB) GetOrganizationByID(context.Context, string) (*models.Project, error) {
 	return nil, nil
 }
 

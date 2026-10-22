@@ -153,7 +153,7 @@ Prefix `/api/v1`. Most groups are admin-only (the gate above); see the spec for 
 | `/repositories/{name}/packages/{id}/{delta,deltas}` | binary deltas |
 | `/repositories/{name}/ai-analysis` | [AI analysis](ai-analysis.md) |
 | `/search` | search packages and repositories |
-| `/users`, `/groups`, `/orgs`, `/permission-targets` | identity and [RBAC](../security/rbac.md) objects |
+| `/users`, `/groups`, `/projects` (with `/members` and `/groups`), `/permission-targets` | identity and [RBAC](../security/rbac.md) objects |
 | `/webhooks` | global webhooks, test, deliveries |
 | `/bundles`, `/pipelines` | [release bundles](../repositories/release-bundles.md) and promotion pipelines |
 | `/admin/{tokens,storage,backup,restore,audit,gpg,sso-providers,ai,license,system}` | token administration, [storage](../operations/storage.md), [backup](../operations/backup.md), audit log, GPG keys (`/admin/gpg/keys` is a stub: empty list, 501 on write; see [signing](../security/signing.md)), SSO providers, AI settings, global license policies, detailed system info |

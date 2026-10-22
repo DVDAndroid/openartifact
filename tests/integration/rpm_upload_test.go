@@ -50,7 +50,7 @@ func createTestRepo(t *testing.T, ctx context.Context, name string) *models.Repo
 		Name:        name,
 		Format:      "rpm",
 		Description: "integration test repo",
-		OrgID:       &orgID,
+		ProjectID:   &orgID,
 	}
 	if err := harness.Database.CreateRepository(ctx, repo); err != nil {
 		t.Fatalf("CreateRepository: %v", err)

@@ -85,6 +85,30 @@ Docker Compose only passes `AUTH_HMAC_KEY` through; see [installation](installat
 
 ## Version notes
 
+### Next release: organizations become projects
+
+**Requires a Recreate upgrade.** Stop all old replicas before starting the new version; do not use a rolling upgrade. The migration renames tables the old binaries still query, so old and new replicas cannot run side by side.
+
+Schema:
+
+- Tables `organizations` -> `projects` and `organization_members` -> `project_members`; columns `org_id` -> `project_id` (repositories, members, audit log). New table `project_groups` (group grants on a project) and policy columns on `projects`.
+- Audit actions for these objects are now `project.*`.
+
+Role mapping of existing members: `admin` -> `maintainer`, `member` -> the project's old `member_role` (`read` -> `viewer`, `write` -> `developer`, `admin` -> `maintainer`). `owner` is unchanged. Where this raises access (a plain member whose old `member_role` was `admin` becomes `maintainer`, which can also delete) it is safe, because organizations could only be managed by global admins, so memberships were created by admins. `member_role` is removed from the API.
+
+Defaults for existing projects: hosted repositories only, all formats, repository name prefix `<slug>-`, at most 50 repositories, token TTL 365 days. These policies are stored now and enforced in later releases.
+
+Breaking changes:
+
+| Area | Change |
+|---|---|
+| API | `/api/v1/orgs*` is replaced by `/api/v1/projects*` (members and new `groups` routes included); the list key is `projects`. Management stays global-admin only. |
+| Repositories | The `org` field of repository responses and of `POST`/`PATCH` bodies is now `project`. |
+| CLI | `oa org` is now `oa project` (new `groups`, `add-group`, `rm-group`; `add-member --role` takes `viewer\|developer\|maintainer\|owner`, default `viewer`). |
+| Audit log | The `org_id` column/field is `project_id`. |
+
+Backup archives written by older versions still restore: the old table names `organizations` and `organization_members` are accepted.
+
 ### 0.5.1
 
 No migrations. Fixes a startup deadlock between replicas: a replica waiting for the migration lock could deadlock with one running a `CREATE INDEX CONCURRENTLY` migration (`deadlock detected`, `SQLSTATE 40P01`) and exit. Waiting replicas now poll the lock instead of blocking on it.
@@ -93,7 +117,7 @@ No migrations. Fixes a startup deadlock between replicas: a replica waiting for 
 
 > **Before upgrading a multi-replica deployment:** stop every pre-0.5.0 replica before the new version starts (Kubernetes: `strategy: Recreate`, or scale to 0 first). Migrations `018`, `019` and `022` change unique indexes and tables that older binaries write to, so old and new replicas cannot run side by side. The runtime image no longer contains a shell: with Helm chart 0.1.4 or older set `database.waitForDatabase=false` (the server waits for the database itself), or upgrade to chart 0.2.0.
 
-> **Security: Go module repositories on 0.4.1 and earlier leak zips across repositories and organizations.** Up to 0.4.1 the Go module upload stored every zip's database row without a digest, so all Go module versions of an instance shared one blob record that points at the **first** zip ever uploaded. Every `.zip` download in every Go repository, of any organization, returned that one zip: a user who could read any Go repository could read the source of the first module published anywhere on the instance. **Upgrade, then check your Go repositories.**
+> **Security: Go module repositories on 0.4.1 and earlier leak zips across repositories and projects.** Up to 0.4.1 the Go module upload stored every zip's database row without a digest, so all Go module versions of an instance shared one blob record that points at the **first** zip ever uploaded. Every `.zip` download in every Go repository, of any project, returned that one zip: a user who could read any Go repository could read the source of the first module published anywhere on the instance. **Upgrade, then check your Go repositories.**
 >
 > - Affected: every Go repository whose versions were uploaded on **0.4.1 or earlier**. Versions uploaded after the upgrade are not affected.
 > - **Fail closed:** the new version answers `404` for any Go module zip whose blob has no valid sha256 and logs `refusing to serve go module zip ... re-upload the version or run the gomod repair` (repository, module, version). Nothing is served from the shared record any more, even if the repair below cannot fix a row.
@@ -245,7 +269,7 @@ Migrations `008`–`015` run at first start (RPM repositories regenerate their m
 | Docker | Image names may contain `/`; the first path segment is the repository, the rest the image. Untagged manifests are garbage-collected after 24 h (`OPENARTIFACT_DOCKER_GC_GRACE_PERIOD`). |
 | Licenses | `block` policies are enforced: uploads with a denied license get 403 and late-detected licenses quarantine the artifact. |
 | Scans | A scanner failure is reported as `failed`/`partial`, no longer as a clean `completed`. |
-| Organizations | Org membership grants access to the org's repositories (`member_role`). |
+| Organizations | Organization membership granted access to the organization's repositories (since renamed to projects). |
 | Audit API | Keyset paging (`cursor`, `has_more`); `total` may be an estimate (`total_exact`). |
 | CLI | `oa search --format json` prints `{repositories, results}`; `storage create/update` take `--config-file`; `user create --admin` and `license delete` are removed. |
 | Startup | Failures exit with status 1 (was 0). |

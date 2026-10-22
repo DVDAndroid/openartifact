@@ -52,8 +52,8 @@ func newQREnv(t *testing.T, pg *database.PostgresDB, format string, mount func(t
 		t.Fatalf("NewFilesystemStore: %v", err)
 	}
 
-	org := models.SystemOrgID
-	repo := &models.Repository{Name: "qr-" + format, Format: format, RepoType: "hosted", OrgID: &org}
+	org := models.SystemProjectID
+	repo := &models.Repository{Name: "qr-" + format, Format: format, RepoType: "hosted", ProjectID: &org}
 
 	if err := pg.CreateRepository(context.Background(), repo); err != nil {
 		t.Fatalf("CreateRepository(%s): %v", format, err)

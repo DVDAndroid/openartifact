@@ -79,43 +79,21 @@ func Commit(req *http.Request, h *base.Handler, repoName string, a *models.RawAr
 		}
 	}
 
-	if err := storage.WithBlobLock(ctx, h.DB, a.SHA256, func(ctx context.Context) error {
-		if err := putBlob(ctx); err != nil {
-			return err
-		}
+	var only ifAbsentInserter
+	if atomic {
+		only = inserter
+	}
 
-		if atomic {
-			inserted, err := inserter.InsertRawArtifactIfAbsent(ctx, a)
-			if err != nil {
-				return fmt.Errorf("insert artifact: %w", err)
-			}
-
-			if !inserted {
-				return trash.ErrImmutableRelease
-			}
-
-			return nil
-		}
-
-		if err := h.DB.UpsertRawArtifact(ctx, a); err != nil {
-			return fmt.Errorf("upsert artifact: %w", err)
-		}
-
-		return nil
-	}); err != nil {
+	if err := persist(ctx, h, a, putBlob, only); err != nil {
 		if reserved {
-			if relErr := quota.Release(ctx, h.DB, a.RepositoryID, a.SizeBytes); relErr != nil {
-				h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
-			}
+			releaseQuota(ctx, h, repoName, a.RepositoryID, a.SizeBytes)
 		}
 
 		return nil, err
 	}
 
 	if reserved && previous != nil {
-		if relErr := quota.Release(ctx, h.DB, a.RepositoryID, previous.SizeBytes); relErr != nil {
-			h.Log.Warnw("failed to release quota", "repo", repoName, "error", relErr)
-		}
+		releaseQuota(ctx, h, repoName, a.RepositoryID, previous.SizeBytes)
 	}
 
 	// An overwrite leaves the previous content unreferenced.
@@ -135,6 +113,43 @@ func Commit(req *http.Request, h *base.Handler, repoName string, a *models.RawAr
 	}))
 
 	return previous, nil
+}
+
+// persist runs putBlob and writes the artifact row under the per-blob lock.
+// With inserter set the row is only inserted when its path is free
+// (trash.ErrImmutableRelease otherwise), else it is upserted.
+func persist(ctx context.Context, h *base.Handler, a *models.RawArtifact, putBlob func(ctx context.Context) error, inserter ifAbsentInserter) error {
+	return storage.WithBlobLock(ctx, h.DB, a.SHA256, func(ctx context.Context) error {
+		if err := putBlob(ctx); err != nil {
+			return err
+		}
+
+		if inserter != nil {
+			inserted, err := inserter.InsertRawArtifactIfAbsent(ctx, a)
+			if err != nil {
+				return fmt.Errorf("insert artifact: %w", err)
+			}
+
+			if !inserted {
+				return trash.ErrImmutableRelease
+			}
+
+			return nil
+		}
+
+		if err := h.DB.UpsertRawArtifact(ctx, a); err != nil {
+			return fmt.Errorf("upsert artifact: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// releaseQuota returns size bytes and one artifact to the repository's quota.
+func releaseQuota(ctx context.Context, h *base.Handler, repoName, repoID string, size int64) {
+	if err := quota.Release(ctx, h.DB, repoID, size); err != nil {
+		h.Log.Warnw("failed to release quota", "repo", repoName, "error", err)
+	}
 }
 
 // StoredID is the id of the row an upload ended up in: an overwrite keeps the

@@ -52,19 +52,34 @@ func qrfMount(register func(*testing.T, *database.PostgresDB, storage.BlobStore)
 }
 
 var (
+	//nolint:gochecknoglobals // immutable mount function used by the table-driven test
 	qrfMountConda = qrfMount(func(t *testing.T, pg *database.PostgresDB, bs storage.BlobStore) func(chi.Router) {
+		t.Helper()
+
 		return formatconda.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes
 	})
+	//nolint:gochecknoglobals // immutable mount function used by the table-driven test
 	qrfMountConan = qrfMount(func(t *testing.T, pg *database.PostgresDB, bs storage.BlobStore) func(chi.Router) {
+		t.Helper()
+
 		return formatconan.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes
 	})
+	//nolint:gochecknoglobals // immutable mount function used by the table-driven test
 	qrfMountIvy = qrfMount(func(t *testing.T, pg *database.PostgresDB, bs storage.BlobStore) func(chi.Router) {
+		t.Helper()
+
 		return formativy.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes
 	})
+	//nolint:gochecknoglobals // immutable mount function used by the table-driven test
 	qrfMountSBT = qrfMount(func(t *testing.T, pg *database.PostgresDB, bs storage.BlobStore) func(chi.Router) {
+		t.Helper()
+
 		return formatsbt.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes
 	})
+	//nolint:gochecknoglobals // immutable mount function used by the table-driven test
 	qrfMountRaw = qrfMount(func(t *testing.T, pg *database.PostgresDB, bs storage.BlobStore) func(chi.Router) {
+		t.Helper()
+
 		return formatraw.NewHTTPHandler(newTestLogger(t), pg, bs, "http://localhost").RegisterRepoRoutes
 	})
 )

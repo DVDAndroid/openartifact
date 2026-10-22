@@ -377,11 +377,7 @@ func TestQuotaDocker_ConcurrentIdenticalPushesCountOnce(t *testing.T) {
 	failures := make([]string, workers)
 
 	for i := range workers {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for _, content := range []string{cfg, layer} {
 				start := f.do(http.MethodPost, "/v2/reg/app/blobs/uploads/", "")
 				if start.Code != http.StatusAccepted {
@@ -399,7 +395,7 @@ func TestQuotaDocker_ConcurrentIdenticalPushesCountOnce(t *testing.T) {
 			if rec := f.putManifest("reg/app", "latest", manifest); rec.Code != http.StatusCreated {
 				failures[i] = "manifest push: " + rec.Body.String()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -420,10 +416,10 @@ func TestQuotaDocker_ConcurrentIdenticalPushesCountOnce(t *testing.T) {
 func TestQuotaDocker_DeleteReleasesUsage(t *testing.T) {
 	const cfg1, cfg2, shared, l1, l2 = `{"v":1}`, `{"v":2}`, "layer shared by both", "layer one", "layer two"
 
-	push := func(f *qdFixture) (m1, d1, m2 string, total int64) {
-		m1, d1 = f.pushImage("reg/app", "v1", cfg1, shared, l1)
-		m2, _ = f.pushImage("reg/app", "v2", cfg2, shared, l2)
-		total = qdLen(cfg1, cfg2, shared, l1, l2, m1, m2)
+	push := func(f *qdFixture) (string, string, string, int64) {
+		m1, d1 := f.pushImage("reg/app", "v1", cfg1, shared, l1)
+		m2, _ := f.pushImage("reg/app", "v2", cfg2, shared, l2)
+		total := qdLen(cfg1, cfg2, shared, l1, l2, m1, m2)
 
 		f.reg.wantUsage("after both pushes", total, 2)
 

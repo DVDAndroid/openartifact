@@ -493,35 +493,7 @@ func (h *HTTPHandler) handlePutManifest(w http.ResponseWriter, r *http.Request) 
 		UpdatedAt:     time.Now(),
 	}
 
-	// Persist the manifest content in the blob store (content-addressed by
-	// sha256), ensure a row exists for it in the global blobs table (the
-	// docker_manifests row has a NOT NULL blob_id FK) and insert the manifest
-	// — all under the per-blob lock so a concurrent unpublish cannot delete
-	// the blob in between. Both the store and the insert are idempotent, so a
-	// re-push of the same manifest is a refresh.
-	if err := storage.WithBlobLock(r.Context(), h.db, digestHex, func(ctx context.Context) error {
-		if _, err := h.blobStore.Put(ctx, bytes.NewReader(body), map[string]string{
-			"sha256":       digestHex,
-			"content-type": contentType,
-		}); err != nil {
-			return fmt.Errorf("store manifest blob: %w", err)
-		}
-
-		// The blobs row is keyed by the sha256 computed above from the pushed
-		// bytes, never by a value the store or client reports.
-		blobID, err := h.db.EnsureBlob(ctx, digestHex, contentType, int64(len(body)))
-		if err != nil {
-			return fmt.Errorf("ensure manifest blob row: %w", err)
-		}
-
-		manifest.BlobID = blobID
-
-		if err := h.db.CreateDockerManifest(ctx, manifest); err != nil {
-			return fmt.Errorf("create manifest: %w", err)
-		}
-
-		return nil
-	}); err != nil {
+	if err := h.storeManifest(r.Context(), manifest, digestHex, contentType, body); err != nil {
 		if reserved {
 			h.releaseQuota(r.Context(), repo.ID, manifest.Size, 1)
 		}
@@ -582,12 +554,44 @@ func (h *HTTPHandler) handlePutManifest(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusCreated)
 }
 
+// storeManifest persists the manifest content in the blob store
+// (content-addressed by sha256), ensures a row exists for it in the global
+// blobs table (the docker_manifests row has a NOT NULL blob_id FK) and inserts
+// the manifest, all under the per-blob lock so a concurrent unpublish cannot
+// delete the blob in between. Both the store and the insert are idempotent, so
+// a re-push of the same manifest is a refresh.
+func (h *HTTPHandler) storeManifest(ctx context.Context, manifest *models.DockerManifest, digestHex, contentType string, body []byte) error {
+	return storage.WithBlobLock(ctx, h.db, digestHex, func(ctx context.Context) error {
+		if _, err := h.blobStore.Put(ctx, bytes.NewReader(body), map[string]string{
+			"sha256":       digestHex,
+			"content-type": contentType,
+		}); err != nil {
+			return fmt.Errorf("store manifest blob: %w", err)
+		}
+
+		// The blobs row is keyed by the sha256 computed above from the pushed
+		// bytes, never by a value the store or client reports.
+		blobID, err := h.db.EnsureBlob(ctx, digestHex, contentType, int64(len(body)))
+		if err != nil {
+			return fmt.Errorf("ensure manifest blob row: %w", err)
+		}
+
+		manifest.BlobID = blobID
+
+		if err := h.db.CreateDockerManifest(ctx, manifest); err != nil {
+			return fmt.Errorf("create manifest: %w", err)
+		}
+
+		return nil
+	})
+}
+
 // reserveManifest reserves quota for a manifest the image does not hold yet
 // (size bytes, one artifact). Re-pushing a manifest the image already holds
 // (an idempotent refresh, or a tag move) reserves nothing; reserved is false
-// then. When ok is false the response has been written: 507 when the quota has
+// then (the first result). When the second result is false the response has been written: 507 when the quota has
 // no room, 500 otherwise.
-func (h *HTTPHandler) reserveManifest(w http.ResponseWriter, r *http.Request, repo *models.Repository, image, digest string, size int64) (reserved, ok bool) {
+func (h *HTTPHandler) reserveManifest(w http.ResponseWriter, r *http.Request, repo *models.Repository, image, digest string, size int64) (bool, bool) {
 	existing, err := h.db.GetDockerManifest(r.Context(), repo.ID, image, digest)
 	if err != nil {
 		h.log.Errorw("failed to look up manifest before push", "digest", digest, "error", err)

@@ -282,13 +282,15 @@ func (p *PostgresDB) DeleteAndroidSigner(ctx context.Context, repoID, id string)
 	return tag.RowsAffected() > 0, nil
 }
 
-// AndroidSignerTrust returns how a key is known for an app: a registration
-// scoped to the app wins over a repository-wide one. found is false for an
-// unknown key.
-func (p *PostgresDB) AndroidSignerTrust(ctx context.Context, repoID, appID, sha string) (trust string, found bool, err error) {
-	err = p.pool.QueryRow(ctx, `
+// AndroidSignerTrust returns how a key is known for an app (appID may be empty
+// for an app not stored yet): a registration scoped to the app wins over a
+// repository-wide one. The bool is false for an unknown key.
+func (p *PostgresDB) AndroidSignerTrust(ctx context.Context, repoID, appID, sha string) (string, bool, error) {
+	var trust string
+
+	err := p.pool.QueryRow(ctx, `
 		SELECT trust FROM android_signers
-		WHERE repository_id = $1 AND sha256 = $3 AND (app_id IS NULL OR app_id = $2)
+		WHERE repository_id = $1 AND sha256 = $3 AND (app_id IS NULL OR app_id = NULLIF($2::text, '')::uuid)
 		ORDER BY (app_id IS NOT NULL) DESC LIMIT 1`, repoID, appID, sha).Scan(&trust)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil

@@ -28,7 +28,7 @@ func TestAndroidSchema(t *testing.T) {
 		`INSERT INTO android_apps (repository_id, package_name) VALUES ($1, 'org.example') RETURNING id`, repo)
 
 	insertVersion := func(code int, variant string) error {
-		_, err := db.Exec(`INSERT INTO android_versions
+		_, err := db.ExecContext(t.Context(), `INSERT INTO android_versions
 			(repository_id, app_id, package_name, version_code, blob_id, sha256, size_bytes, filename, variant_key)
 			VALUES ($1, $2, 'org.example', $3, $4, $5, 10, 'a.apk', $6)`,
 			repo, app, code, blob, androidTestSHA, variant)
@@ -49,24 +49,24 @@ func TestAndroidSchema(t *testing.T) {
 	})
 
 	t.Run("duplicate package per repository", func(t *testing.T) {
-		_, err := db.Exec(`INSERT INTO android_apps (repository_id, package_name) VALUES ($1, 'org.example')`, repo)
+		_, err := db.ExecContext(t.Context(), `INSERT INTO android_apps (repository_id, package_name) VALUES ($1, 'org.example')`, repo)
 		wantPgCode(t, err, "23505", "duplicate app")
 	})
 
 	t.Run("origin check", func(t *testing.T) {
-		_, err := db.Exec(`UPDATE android_versions SET origin = 'bogus' WHERE package_name = 'org.example'`)
+		_, err := db.ExecContext(t.Context(), `UPDATE android_versions SET origin = 'bogus' WHERE package_name = 'org.example'`)
 		wantPgCode(t, err, pgCheckViolation, "origin")
 	})
 
 	t.Run("signer fingerprint must be lowercase hex", func(t *testing.T) {
-		_, err := db.Exec(`INSERT INTO android_signers (repository_id, sha256, trust) VALUES ($1, $2, 'mine')`,
+		_, err := db.ExecContext(t.Context(), `INSERT INTO android_signers (repository_id, sha256, trust) VALUES ($1, $2, 'mine')`,
 			repo, strings.ToUpper(androidTestSHA))
 		wantPgCode(t, err, pgCheckViolation, "signer sha")
 	})
 
 	t.Run("known key is unique per repository and app", func(t *testing.T) {
 		ins := func(appID any) error {
-			_, err := db.Exec(`INSERT INTO android_signers (repository_id, sha256, trust, app_id) VALUES ($1, $2, 'mine', $3)`,
+			_, err := db.ExecContext(t.Context(), `INSERT INTO android_signers (repository_id, sha256, trust, app_id) VALUES ($1, $2, 'mine', $3)`,
 				repo, androidTestSHA, appID)
 
 			return err
@@ -84,12 +84,12 @@ func TestAndroidSchema(t *testing.T) {
 	})
 
 	t.Run("referenced blob cannot be deleted", func(t *testing.T) {
-		_, err := db.Exec(`DELETE FROM blobs WHERE id = $1`, blob)
+		_, err := db.ExecContext(t.Context(), `DELETE FROM blobs WHERE id = $1`, blob)
 		wantPgCode(t, err, "23001", "blob restrict")
 	})
 
 	t.Run("format check still rejects unknown formats", func(t *testing.T) {
-		_, err := db.Exec(`INSERT INTO repositories (name, format, org_id) VALUES ('x', 'nope', $1)`, org)
+		_, err := db.ExecContext(t.Context(), `INSERT INTO repositories (name, format, org_id) VALUES ('x', 'nope', $1)`, org)
 		wantPgCode(t, err, pgCheckViolation, "format")
 	})
 }

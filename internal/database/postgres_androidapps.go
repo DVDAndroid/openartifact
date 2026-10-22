@@ -130,7 +130,9 @@ func (p *PostgresDB) ListAndroidApps(ctx context.Context, repoID string, f model
 	if f.Query != "" {
 		q := a.add(likePattern(f.Query))
 		where = append(where, `(a.package_name ILIKE `+q+` OR a.label_override ILIKE `+q+` OR a.notes ILIKE `+q+
-			` OR lv.label ILIKE `+q+` OR EXISTS (SELECT 1 FROM unnest(a.tags) t WHERE t ILIKE `+q+`))`)
+			` OR lv.label ILIKE `+q+
+			` OR EXISTS (SELECT 1 FROM jsonb_each_text(lv.labels) l WHERE l.value ILIKE `+q+`)`+
+			` OR EXISTS (SELECT 1 FROM unnest(a.tags) t WHERE t ILIKE `+q+`))`)
 	}
 
 	if len(f.Tags) > 0 {
@@ -168,7 +170,7 @@ func (p *PostgresDB) ListAndroidApps(ctx context.Context, repoID string, f model
 			count(*) OVER()
 		FROM android_apps a
 		LEFT JOIN LATERAL (
-			SELECT v.id, v.label, v.version_name, v.version_code, v.signer_sha256, v.origin, v.created_at
+			SELECT v.id, v.label, v.labels, v.version_name, v.version_code, v.signer_sha256, v.origin, v.created_at
 			FROM android_versions v WHERE v.app_id = a.id
 			ORDER BY v.version_code DESC, v.created_at DESC LIMIT 1) lv ON true
 		LEFT JOIN LATERAL (
@@ -402,14 +404,15 @@ func (p *PostgresDB) GetAndroidVersionBySHA256(ctx context.Context, repoID, sha 
 }
 
 // GetAndroidDownload resolves a download path: the version of the package with
-// versionCode and the file name. Several signers can share a versionCode, so
-// the file name (which includes the signer prefix) disambiguates; when it does
-// not match, the newest variant is returned.
+// versionCode and exactly this file name. Several signers can share a
+// versionCode, and the name carries the signer, so a name that matches nothing
+// is not served as another variant: whoever asked for a key gets that key or
+// nothing.
 func (p *PostgresDB) GetAndroidDownload(ctx context.Context, repoID, packageName string, versionCode int64, filename string) (*models.AndroidVersion, error) {
 	v, err := scanAndroidVersion(p.pool.QueryRow(ctx,
 		`SELECT `+androidVersionCols+` FROM android_versions v
-		 WHERE v.repository_id = $1 AND v.package_name = $2 AND v.version_code = $3
-		 ORDER BY (v.filename = $4) DESC, v.created_at DESC LIMIT 1`,
+		 WHERE v.repository_id = $1 AND v.package_name = $2 AND v.version_code = $3 AND v.filename = $4
+		 ORDER BY v.created_at DESC LIMIT 1`,
 		repoID, packageName, versionCode, filename), false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil, nil is the standard Go "not found" pattern
@@ -646,6 +649,7 @@ type AndroidDeleted struct {
 	Version    *models.AndroidVersion
 	BlobSHA256 []string
 	QuotaBytes int64
+	QuotaCount int
 }
 
 // DeleteAndroidVersion removes a version with its icons and attached files.
@@ -663,7 +667,7 @@ func (p *PostgresDB) DeleteAndroidVersion(ctx context.Context, repoID, id string
 
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	out := &AndroidDeleted{Version: v, BlobSHA256: []string{v.SHA256}, QuotaBytes: v.SizeBytes}
+	out := &AndroidDeleted{Version: v, BlobSHA256: []string{v.SHA256}, QuotaBytes: v.SizeBytes, QuotaCount: 1}
 	seen := map[string]bool{v.SHA256: true}
 
 	rows, err := tx.Query(ctx, `
@@ -693,6 +697,7 @@ func (p *PostgresDB) DeleteAndroidVersion(ctx context.Context, repoID, id string
 
 		if quoted {
 			out.QuotaBytes += size
+			out.QuotaCount++
 		}
 	}
 
